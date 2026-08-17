@@ -12,7 +12,7 @@ import { tonsToKW } from "./hvac";
 import type { MaterialId } from "./materials";
 import { MATERIAL_PRESETS } from "./materials";
 import type { OccupancyProfile } from "./savings";
-import type { ReportedIssue, RetrofitAction } from "./ranking";
+import type { RetrofitAction } from "./ranking";
 import {
   DEFAULT_GRID_KG_CO2_PER_KWH,
   estimateSavings,

@@ -13,6 +13,16 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    files: [
+      "src/components/evidence/CameraCapture.tsx",
+      "src/components/results/ResultsView.tsx",
+    ],
+    rules: {
+      // getUserMedia / sessionStorage hydrate require mount-time async setState
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

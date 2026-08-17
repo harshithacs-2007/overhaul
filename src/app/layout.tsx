@@ -23,9 +23,9 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Overhaul — Retrofit Decision Engine",
+  title: "Overhaul — Building Evidence Workspace",
   description:
-    "Deterministic physics-based ranking of envelope and HVAC retrofit actions. No ML.",
+    "Professional engineering workspace: evidence, building model, and verifiable retrofit decisions. No ML.",
 };
 
 export default function RootLayout({
@@ -38,7 +38,7 @@ export default function RootLayout({
       lang="en"
       className={`${fraunces.variable} ${inter.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
-      <body className="blueprint-grid min-h-full flex flex-col bg-navy text-paper">
+      <body className="min-h-full flex flex-col bg-navy text-paper">
         <ErrorBoundary>{children}</ErrorBoundary>
       </body>
     </html>
