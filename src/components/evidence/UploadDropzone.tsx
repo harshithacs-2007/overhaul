@@ -26,7 +26,6 @@ async function uploadFile(
   category: EvidenceCategory,
   onProgress: (n: number) => void
 ): Promise<EvidenceItem> {
-  // XMLHttpRequest for upload progress
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const form = new FormData();
@@ -39,14 +38,27 @@ async function uploadFile(
     };
     xhr.onload = () => {
       try {
-        const json = JSON.parse(xhr.responseText);
-        if (xhr.status >= 200 && xhr.status < 300) resolve(json.evidence);
-        else reject(new Error(json.error || "Upload failed"));
+        const json = JSON.parse(xhr.responseText) as {
+          evidence?: EvidenceItem;
+          error?: string;
+          message?: string;
+        };
+        if (xhr.status >= 200 && xhr.status < 300 && json.evidence) {
+          resolve(json.evidence);
+        } else {
+          reject(
+            new Error(json.message || json.error || "Upload failed")
+          );
+        }
       } catch {
         reject(new Error("Invalid server response"));
       }
     };
-    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.onerror = () =>
+      reject(new Error("Network error — check connection and retry."));
+    xhr.ontimeout = () =>
+      reject(new Error("Upload timed out — retry when the connection is stable."));
+    xhr.timeout = 120_000;
     xhr.send(form);
   });
 }
@@ -55,10 +67,22 @@ export function UploadDropzone({ onClose }: { onClose?: () => void }) {
   const { addEvidence, setStatus } = useWorkspace();
   const reduce = useReducedMotion();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [queue, setQueue] = useState<QueuedFile[]>([]);
+  const queueRef = useRef<QueuedFile[]>([]);
+  const [queue, setQueueState] = useState<QueuedFile[]>([]);
   const [defaultCategory, setDefaultCategory] =
     useState<EvidenceCategory>("exterior");
   const [dragging, setDragging] = useState(false);
+
+  const setQueue = useCallback(
+    (updater: QueuedFile[] | ((prev: QueuedFile[]) => QueuedFile[])) => {
+      setQueueState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        queueRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
 
   const enqueue = useCallback(
     (files: FileList | File[]) => {
@@ -76,12 +100,12 @@ export function UploadDropzone({ onClose }: { onClose?: () => void }) {
       setQueue((q) => [...next, ...q]);
       setStatus(`${next.length} file(s) queued`);
     },
-    [defaultCategory, setStatus]
+    [defaultCategory, setStatus, setQueue]
   );
 
   const runUpload = async (localId: string) => {
-    const item = queue.find((q) => q.localId === localId);
-    if (!item) return;
+    const item = queueRef.current.find((q) => q.localId === localId);
+    if (!item || item.status === "uploading" || item.status === "done") return;
 
     if (item.file.size > MAX_EVIDENCE_BYTES) {
       setQueue((q) =>
@@ -90,7 +114,7 @@ export function UploadDropzone({ onClose }: { onClose?: () => void }) {
             ? {
                 ...x,
                 status: "error",
-                error: `Exceeds ${MAX_EVIDENCE_BYTES / (1024 * 1024)} MB limit`,
+                error: `This file is larger than the ${MAX_EVIDENCE_BYTES / (1024 * 1024)} MB limit.`,
               }
             : x
         )
@@ -100,7 +124,9 @@ export function UploadDropzone({ onClose }: { onClose?: () => void }) {
 
     setQueue((q) =>
       q.map((x) =>
-        x.localId === localId ? { ...x, status: "uploading", progress: 0 } : x
+        x.localId === localId
+          ? { ...x, status: "uploading", progress: 0, error: undefined }
+          : x
       )
     );
 
@@ -110,7 +136,15 @@ export function UploadDropzone({ onClose }: { onClose?: () => void }) {
           q.map((x) => (x.localId === localId ? { ...x, progress: n } : x))
         );
       });
+      if (
+        item.previewUrl &&
+        (!evidence.file.previewUrl ||
+          evidence.file.previewUrl.startsWith("/api/"))
+      ) {
+        evidence.file = { ...evidence.file, previewUrl: item.previewUrl };
+      }
       addEvidence(evidence);
+      setStatus(`Evidence added · ${evidence.file.originalFilename}`);
       setQueue((q) =>
         q.map((x) =>
           x.localId === localId ? { ...x, status: "done", progress: 100 } : x

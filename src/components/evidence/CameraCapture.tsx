@@ -26,12 +26,14 @@ async function uploadBlob(
   form.append("source", source);
   const res = await fetch("/api/evidence/upload", { method: "POST", body: form });
   const json = await res.json();
-  if (!res.ok) throw new Error(json.error || "Upload failed");
+  if (!res.ok) {
+    throw new Error(json.message || json.error || "Upload failed");
+  }
   return json.evidence as EvidenceItem;
 }
 
 export function CameraCapture({ onClose }: { onClose: () => void }) {
-  const { addEvidence, setStatus } = useWorkspace();
+  const { addEvidence, setStatus, setCenterMode } = useWorkspace();
   const reduce = useReducedMotion();
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -87,10 +89,14 @@ export function CameraCapture({ onClose }: { onClose: () => void }) {
       const name = err instanceof DOMException ? err.name : "";
       if (name === "NotAllowedError" || name === "PermissionDeniedError") {
         setCamState("denied");
-        setErrorMsg("Camera permission denied. Allow access to scan evidence.");
+        setErrorMsg(
+          "Camera permission was denied. Allow camera access or upload a file instead."
+        );
       } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
         setCamState("unavailable");
-        setErrorMsg("No camera device found.");
+        setErrorMsg(
+          "No usable camera was found. Try again or upload a file instead."
+        );
       } else {
         setCamState("error");
         setErrorMsg(err instanceof Error ? err.message : "Camera failed to start");
@@ -234,13 +240,25 @@ export function CameraCapture({ onClose }: { onClose: () => void }) {
               {(camState === "denied" ||
                 camState === "unavailable" ||
                 camState === "error") && (
-                <button
-                  type="button"
-                  onClick={() => void startCamera()}
-                  className="border border-teal px-4 py-2 text-sm text-teal hover:bg-teal/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal"
-                >
-                  Try again
-                </button>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void startCamera()}
+                    className="border border-teal px-4 py-2 text-sm text-teal hover:bg-teal/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal"
+                  >
+                    Try again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopTracks();
+                      setCenterMode("upload");
+                    }}
+                    className="border border-steel/40 px-4 py-2 text-sm text-paper focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal"
+                  >
+                    Upload instead
+                  </button>
+                </div>
               )}
             </div>
           </div>

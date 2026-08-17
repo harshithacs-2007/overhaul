@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { clientIp, rateLimit } from "@/lib/rateLimit";
-import { getEvidenceStorage, sanitizeFilename } from "@/lib/evidence/storage";
+import {
+  buildInlinePreviewUrl,
+  getEvidenceStorage,
+  sanitizeFilename,
+  userFacingStorageError,
+} from "@/lib/evidence/storage";
 import { validateUploadBuffer } from "@/lib/evidence/validation";
 import {
   createEvidenceId,
@@ -16,7 +21,10 @@ export async function POST(req: Request) {
     const ip = clientIp(req);
     const rl = rateLimit(`evidence-upload:${ip}`, 40, 60_000);
     if (!rl.ok) {
-      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+      return NextResponse.json(
+        { error: "Too many uploads. Wait a moment and retry." },
+        { status: 429 }
+      );
     }
 
     const form = await req.formData();
@@ -49,6 +57,15 @@ export async function POST(req: Request) {
       originalFilename: validated.value.originalFilename,
     });
 
+    const apiPreview = `/api/evidence/file/${encodeURIComponent(stored.storageKey)}`;
+    const inline =
+      stored.persistence === "temporary"
+        ? buildInlinePreviewUrl(
+            validated.value.buffer,
+            validated.value.mimeType
+          )
+        : null;
+
     const id = createEvidenceId();
     const item: EvidenceItem = {
       id,
@@ -57,7 +74,7 @@ export async function POST(req: Request) {
       category: validated.value.category,
       file: {
         storageKey: stored.storageKey,
-        previewUrl: `/api/evidence/file/${encodeURIComponent(stored.storageKey)}`,
+        previewUrl: inline ?? apiPreview,
         originalFilename: stored.originalFilename,
         mimeType: stored.mimeType,
         sizeBytes: stored.sizeBytes,
@@ -69,16 +86,16 @@ export async function POST(req: Request) {
       analysisState: "not_analyzed",
     };
 
-    // Explicit Phase 2: run null adapter (no detections)
     const analysis = await getAnalysisAdapter().analyze(item);
     item.analysisState = analysis.state;
 
     return NextResponse.json({ evidence: item });
   } catch (err) {
+    const message = userFacingStorageError(err);
     return NextResponse.json(
       {
-        error: "Upload failed",
-        message: err instanceof Error ? err.message : String(err),
+        error: message,
+        message,
       },
       { status: 500 }
     );

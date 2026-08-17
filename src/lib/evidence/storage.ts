@@ -1,6 +1,7 @@
 /**
  * Evidence storage abstraction.
- * Without permanent object storage configured, files are temporary — stated honestly.
+ * Local/dev: filesystem under .data or OVERHAUL_EVIDENCE_DIR.
+ * Vercel/serverless: in-memory (read-only FS) — temporary, stated honestly.
  */
 
 import { mkdir, writeFile, readFile, unlink, access } from "fs/promises";
@@ -52,16 +53,78 @@ export function sanitizeFilename(name: string): string {
   return cleaned.slice(0, 120) || "upload.bin";
 }
 
+function isServerlessRuntime(): boolean {
+  return Boolean(
+    process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.VERCEL_ENV
+  );
+}
+
 function resolveRoot(): { root: string; persistence: "temporary" | "permanent" } {
   const configured = process.env.OVERHAUL_EVIDENCE_DIR?.trim();
   if (configured) {
     return { root: path.resolve(configured), persistence: "permanent" };
   }
-  // Scoped under cwd/.data so Turbopack tracing stays bounded
+  if (isServerlessRuntime()) {
+    // Writable scratch only — still temporary across instances
+    return {
+      root: path.join("/tmp", "overhaul-evidence"),
+      persistence: "temporary",
+    };
+  }
   return {
     root: path.join(process.cwd(), ".data", "overhaul-evidence"),
     persistence: "temporary",
   };
+}
+
+type MemEntry = { buffer: Buffer; meta: StoredObject };
+
+function globalMemoryStore(): Map<string, MemEntry> {
+  const g = globalThis as unknown as { __overhaulEvidenceMem?: Map<string, MemEntry> };
+  if (!g.__overhaulEvidenceMem) g.__overhaulEvidenceMem = new Map();
+  return g.__overhaulEvidenceMem;
+}
+
+/** In-process store for serverless where durable FS is unavailable */
+export class MemoryEvidenceStorage implements EvidenceStorage {
+  async put(
+    buffer: Buffer,
+    meta: { mimeType: string; originalFilename: string }
+  ): Promise<StoredObject> {
+    const id = createEvidenceId();
+    const safeName = sanitizeFilename(meta.originalFilename);
+    const storageKey = `${sanitizeKeySegment(id)}_${sanitizeKeySegment(safeName)}`;
+    const stored: StoredObject = {
+      storageKey,
+      absolutePath: `memory://${storageKey}`,
+      persistence: "temporary",
+      mimeType: meta.mimeType,
+      sizeBytes: buffer.length,
+      originalFilename: safeName,
+      createdAt: new Date().toISOString(),
+    };
+    globalMemoryStore().set(storageKey, {
+      buffer: Buffer.from(buffer),
+      meta: stored,
+    });
+    return stored;
+  }
+
+  async get(
+    storageKey: string
+  ): Promise<{ buffer: Buffer; meta: StoredObject } | null> {
+    const key = path.basename(storageKey);
+    const hit = globalMemoryStore().get(key);
+    if (!hit) return null;
+    return { buffer: hit.buffer, meta: hit.meta };
+  }
+
+  async remove(storageKey: string): Promise<boolean> {
+    const key = path.basename(storageKey);
+    return globalMemoryStore().delete(key);
+  }
 }
 
 export class FileEvidenceStorage implements EvidenceStorage {
@@ -153,9 +216,86 @@ export class FileEvidenceStorage implements EvidenceStorage {
   }
 }
 
+/**
+ * Tries filesystem; on failure (e.g. read-only serverless root) uses memory.
+ * Prefer memory on known serverless hosts without OVERHAUL_EVIDENCE_DIR.
+ */
+export class HybridEvidenceStorage implements EvidenceStorage {
+  private primary: EvidenceStorage;
+  private fallback: MemoryEvidenceStorage;
+  private useMemory = false;
+
+  constructor() {
+    const configured = Boolean(process.env.OVERHAUL_EVIDENCE_DIR?.trim());
+    this.fallback = new MemoryEvidenceStorage();
+    if (!configured && isServerlessRuntime()) {
+      this.primary = this.fallback;
+      this.useMemory = true;
+    } else {
+      this.primary = new FileEvidenceStorage();
+    }
+  }
+
+  async put(
+    buffer: Buffer,
+    meta: { mimeType: string; originalFilename: string }
+  ): Promise<StoredObject> {
+    if (this.useMemory) return this.fallback.put(buffer, meta);
+    try {
+      return await this.primary.put(buffer, meta);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        /ENOENT|EROFS|EACCES|read-only|mkdir/i.test(msg) ||
+        isServerlessRuntime()
+      ) {
+        this.useMemory = true;
+        return this.fallback.put(buffer, meta);
+      }
+      throw err;
+    }
+  }
+
+  async get(
+    storageKey: string
+  ): Promise<{ buffer: Buffer; meta: StoredObject } | null> {
+    const fromPrimary = await this.primary.get(storageKey);
+    if (fromPrimary) return fromPrimary;
+    return this.fallback.get(storageKey);
+  }
+
+  async remove(storageKey: string): Promise<boolean> {
+    const a = await this.primary.remove(storageKey);
+    const b = await this.fallback.remove(storageKey);
+    return a || b;
+  }
+}
+
 let singleton: EvidenceStorage | null = null;
 
 export function getEvidenceStorage(): EvidenceStorage {
-  if (!singleton) singleton = new FileEvidenceStorage();
+  if (!singleton) singleton = new HybridEvidenceStorage();
   return singleton;
+}
+
+/** Build a data-URL preview for session UX when object storage is temporary */
+export function buildInlinePreviewUrl(
+  buffer: Buffer,
+  mimeType: string,
+  maxBytes = 1_500_000
+): string | null {
+  if (!mimeType.startsWith("image/")) return null;
+  if (buffer.length > maxBytes) return null;
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
+export function userFacingStorageError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/ENOENT|EROFS|EACCES|mkdir|read-only/i.test(msg)) {
+    return "Upload could not be completed. Storage is temporarily unavailable.";
+  }
+  if (/too large|size|limit/i.test(msg)) {
+    return "This file exceeds the allowed upload size.";
+  }
+  return msg || "Upload failed";
 }
