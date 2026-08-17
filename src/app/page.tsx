@@ -1,10 +1,13 @@
 import { WorkspaceProvider } from "@/components/workspace/WorkspaceProvider";
+import { RetrofitProvider } from "@/components/retrofit/RetrofitProvider";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 
 export default function HomePage() {
   return (
     <WorkspaceProvider>
-      <WorkspaceShell />
+      <RetrofitProvider>
+        <WorkspaceShell />
+      </RetrofitProvider>
     </WorkspaceProvider>
   );
 }

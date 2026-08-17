@@ -3,7 +3,6 @@
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  isLocked,
   useWorkspace,
   type WorkspaceSection,
 } from "./WorkspaceProvider";
@@ -14,6 +13,7 @@ import { UploadDropzone } from "@/components/evidence/UploadDropzone";
 import { BuildingCanvas } from "@/components/building/BuildingCanvas";
 import { ManualBuilder } from "@/components/building/ManualBuilder";
 import { PhysicsPanel } from "@/components/building/PhysicsPanel";
+import { RetrofitPanel } from "@/components/retrofit/RetrofitPanel";
 
 const CameraCapture = dynamic(
   () =>
@@ -33,9 +33,11 @@ const NAV: { id: WorkspaceSection; label: string }[] = [
   { id: "evidence", label: "Evidence" },
   { id: "building", label: "Building" },
   { id: "climate", label: "Climate" },
+  { id: "physics", label: "Physics" },
   { id: "hvac", label: "HVAC" },
-  { id: "retrofit", label: "Retrofit" },
-  { id: "results", label: "Results" },
+  { id: "simulate", label: "Simulate" },
+  { id: "optimize", label: "Optimize" },
+  { id: "sequence", label: "Sequence" },
 ];
 
 export function WorkspaceShell() {
@@ -86,7 +88,6 @@ export function WorkspaceShell() {
           </div>
           <ul className="space-y-0.5 p-2">
             {NAV.map((item) => {
-              const locked = isLocked(item.id);
               const active = state.section === item.id;
               return (
                 <li key={item.id}>
@@ -97,8 +98,15 @@ export function WorkspaceShell() {
                       setNavOpen(false);
                       if (item.id === "evidence") setCenterMode("evidence");
                       if (item.id === "building") setCenterMode("building");
-                      if (item.id === "climate" || item.id === "hvac")
+                      if (
+                        item.id === "climate" ||
+                        item.id === "hvac" ||
+                        item.id === "physics"
+                      )
                         setCenterMode("physics");
+                      if (item.id === "simulate") setCenterMode("simulate");
+                      if (item.id === "optimize") setCenterMode("optimize");
+                      if (item.id === "sequence") setCenterMode("sequence");
                       if (item.id === "overview")
                         setCenterMode(
                           state.evidence.length ? "building" : "first"
@@ -111,11 +119,6 @@ export function WorkspaceShell() {
                     }`}
                   >
                     <span>{item.label}</span>
-                    {locked ? (
-                      <span className="font-mono-num text-[9px] text-steel/60">
-                        soon
-                      </span>
-                    ) : null}
                   </button>
                 </li>
               );
@@ -156,20 +159,17 @@ export function WorkspaceShell() {
                 <ManualBuilder onDone={() => setCenterMode("building")} />
               )}
               {state.centerMode === "physics" && <PhysicsPanel />}
+              {state.centerMode === "simulate" && (
+                <RetrofitPanel view="simulate" />
+              )}
+              {state.centerMode === "optimize" && (
+                <RetrofitPanel view="optimize" />
+              )}
+              {state.centerMode === "sequence" && (
+                <RetrofitPanel view="sequence" />
+              )}
             </motion.div>
           </AnimatePresence>
-
-          {isLocked(state.section) &&
-          state.section !== "overview" &&
-          state.centerMode !== "camera" &&
-          state.centerMode !== "upload" &&
-          state.centerMode !== "manual" &&
-          state.centerMode !== "physics" ? (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-steel/20 bg-navy/90 px-4 py-2 text-center text-xs text-steel">
-              {state.section} is upcoming — no fabricated engineering values
-              shown.
-            </div>
-          ) : null}
         </main>
 
         {/* Right inspector — desktop */}

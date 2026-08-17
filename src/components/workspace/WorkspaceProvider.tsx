@@ -24,8 +24,14 @@ export type WorkspaceSection =
   | "evidence"
   | "building"
   | "climate"
+  | "physics"
   | "hvac"
+  | "simulate"
+  | "optimize"
+  | "sequence"
+  /** @deprecated mapped to simulate */
   | "retrofit"
+  /** @deprecated mapped to optimize */
   | "results";
 
 export type Selection =
@@ -40,7 +46,10 @@ export type CenterMode =
   | "manual"
   | "building"
   | "evidence"
-  | "physics";
+  | "physics"
+  | "simulate"
+  | "optimize"
+  | "sequence";
 
 interface State {
   section: WorkspaceSection;
@@ -86,41 +95,60 @@ const initial: State = {
   inspectorOpenMobile: false,
 };
 
-function isLocked(s: WorkspaceSection): boolean {
-  return s === "retrofit" || s === "results";
+function isLocked(_section: WorkspaceSection): boolean {
+  void _section;
+  return false;
+}
+
+function normalizeSection(s: WorkspaceSection): WorkspaceSection {
+  if (s === "retrofit") return "simulate";
+  if (s === "results") return "optimize";
+  return s;
 }
 
 function sectionForMode(mode: CenterMode): WorkspaceSection {
   if (mode === "evidence" || mode === "camera" || mode === "upload")
     return "evidence";
   if (mode === "building" || mode === "manual") return "building";
-  if (mode === "physics") return "climate";
+  if (mode === "physics") return "physics";
+  if (mode === "simulate") return "simulate";
+  if (mode === "optimize") return "optimize";
+  if (mode === "sequence") return "sequence";
   return "overview";
 }
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "setSection": {
-      if (isLocked(action.section)) {
+      const section = normalizeSection(action.section);
+      if (isLocked(section)) {
         return {
           ...state,
-          section: action.section,
-          statusMessage: `${action.section} — upcoming (Phase 2)`,
+          section,
+          statusMessage: `${section} — locked`,
         };
       }
       const mode: CenterMode =
-        action.section === "evidence"
+        section === "evidence"
           ? "evidence"
-          : action.section === "building"
+          : section === "building"
             ? "building"
-            : action.section === "climate" || action.section === "hvac"
+            : section === "climate" ||
+                section === "hvac" ||
+                section === "physics"
               ? "physics"
-              : action.section === "overview"
-                ? state.evidence.length
-                  ? "building"
-                  : "first"
-                : state.centerMode;
-      return { ...state, section: action.section, centerMode: mode };
+              : section === "simulate"
+                ? "simulate"
+                : section === "optimize"
+                  ? "optimize"
+                  : section === "sequence"
+                    ? "sequence"
+                    : section === "overview"
+                      ? state.evidence.length
+                        ? "building"
+                        : "first"
+                      : state.centerMode;
+      return { ...state, section, centerMode: mode };
     }
     case "setCenterMode":
       return {
