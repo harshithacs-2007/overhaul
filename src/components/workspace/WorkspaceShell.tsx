@@ -94,23 +94,9 @@ export function WorkspaceShell() {
                   <button
                     type="button"
                     onClick={() => {
+                      // Single dispatch — setSection owns centerMode (avoids nav race)
                       setSection(item.id);
                       setNavOpen(false);
-                      if (item.id === "evidence") setCenterMode("evidence");
-                      if (item.id === "building") setCenterMode("building");
-                      if (
-                        item.id === "climate" ||
-                        item.id === "hvac" ||
-                        item.id === "physics"
-                      )
-                        setCenterMode("physics");
-                      if (item.id === "simulate") setCenterMode("simulate");
-                      if (item.id === "optimize") setCenterMode("optimize");
-                      if (item.id === "sequence") setCenterMode("sequence");
-                      if (item.id === "overview")
-                        setCenterMode(
-                          state.evidence.length ? "building" : "first"
-                        );
                     }}
                     className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal ${
                       active
