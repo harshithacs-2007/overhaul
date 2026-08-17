@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --navy: #0b1620;
+  --paper: #f5f3ee;
+  --teal: #2b6e75;
+  --clay: #c4622d;
+  --steel: #8a9ba8;
+  --gold: #e8c468;
+  --line: color-mix(in srgb, var(--steel) 35%, transparent);
+  --background: var(--navy);
+  --foreground: var(--paper);
+}
+
+@theme inline {
+  --color-navy: var(--navy);
+  --color-paper: var(--paper);
+  --color-teal: var(--teal);
+  --color-clay: var(--clay);
+  --color-steel: var(--steel);
+  --color-gold: var(--gold);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-ibm-plex-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: var(--navy);
+  color: var(--paper);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-fraunces), Georgia, serif;
+}
+
+.font-mono-num {
+  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.hairline {
+  border-color: var(--line);
+}
+
+.blueprint-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--steel) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--steel) 12%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Thermal ribbon — teal (efficient) → orange (inefficient) */
+.thermal-ribbon {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal) 0%, var(--gold) 55%, var(--clay) 100%);
+  position: relative;
+  overflow: visible;
+}
+
+.thermal-ribbon-marker {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--steel);
+  transform: translate(-50%, -50%);
+  transition: left 400ms ease-out;
+}
