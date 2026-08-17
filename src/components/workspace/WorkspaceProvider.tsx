@@ -14,6 +14,10 @@ import {
   type BuildingElementKind,
   type BuildingModel,
 } from "@/lib/building/types";
+import {
+  createEmptyEngineeringModel,
+  type EngineeringReadyModel,
+} from "@/lib/engineering/model";
 
 export type WorkspaceSection =
   | "overview"
@@ -35,13 +39,15 @@ export type CenterMode =
   | "upload"
   | "manual"
   | "building"
-  | "evidence";
+  | "evidence"
+  | "physics";
 
 interface State {
   section: WorkspaceSection;
   centerMode: CenterMode;
   evidence: EvidenceItem[];
   building: BuildingModel;
+  engineering: EngineeringReadyModel;
   selection: Selection;
   statusMessage: string;
   navOpen: boolean;
@@ -57,6 +63,7 @@ type Action =
   | { type: "replaceEvidence"; id: string; item: EvidenceItem }
   | { type: "setSelection"; selection: Selection }
   | { type: "setBuilding"; building: BuildingModel }
+  | { type: "setEngineering"; engineering: EngineeringReadyModel }
   | { type: "selectElement"; id: BuildingElementKind }
   | {
       type: "linkEvidenceToElement";
@@ -72,6 +79,7 @@ const initial: State = {
   centerMode: "first",
   evidence: [],
   building: createEmptyBuildingModel(),
+  engineering: createEmptyEngineeringModel(),
   selection: { type: "none" },
   statusMessage: "Ready — no analysis claimed",
   navOpen: false,
@@ -79,13 +87,14 @@ const initial: State = {
 };
 
 function isLocked(s: WorkspaceSection): boolean {
-  return s === "climate" || s === "hvac" || s === "retrofit" || s === "results";
+  return s === "retrofit" || s === "results";
 }
 
 function sectionForMode(mode: CenterMode): WorkspaceSection {
   if (mode === "evidence" || mode === "camera" || mode === "upload")
     return "evidence";
   if (mode === "building" || mode === "manual") return "building";
+  if (mode === "physics") return "climate";
   return "overview";
 }
 
@@ -104,11 +113,13 @@ function reducer(state: State, action: Action): State {
           ? "evidence"
           : action.section === "building"
             ? "building"
-            : action.section === "overview"
-              ? state.evidence.length
-                ? "building"
-                : "first"
-              : state.centerMode;
+            : action.section === "climate" || action.section === "hvac"
+              ? "physics"
+              : action.section === "overview"
+                ? state.evidence.length
+                  ? "building"
+                  : "first"
+                : state.centerMode;
       return { ...state, section: action.section, centerMode: mode };
     }
     case "setCenterMode":
@@ -171,6 +182,8 @@ function reducer(state: State, action: Action): State {
       };
     case "setBuilding":
       return { ...state, building: action.building };
+    case "setEngineering":
+      return { ...state, engineering: action.engineering };
     case "selectElement":
       return {
         ...state,
@@ -227,6 +240,7 @@ interface CtxValue {
   setSelection: (s: Selection) => void;
   selectElement: (id: BuildingElementKind) => void;
   setBuilding: (b: BuildingModel) => void;
+  setEngineering: (m: EngineeringReadyModel) => void;
   linkEvidence: (elementId: BuildingElementKind, evidenceId: string) => void;
   setStatus: (m: string) => void;
   setNavOpen: (o: boolean) => void;
@@ -284,6 +298,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     (building: BuildingModel) => dispatch({ type: "setBuilding", building }),
     []
   );
+  const setEngineering = useCallback(
+    (engineering: EngineeringReadyModel) =>
+      dispatch({ type: "setEngineering", engineering }),
+    []
+  );
   const linkEvidence = useCallback(
     (elementId: BuildingElementKind, evidenceId: string) =>
       dispatch({ type: "linkEvidenceToElement", elementId, evidenceId }),
@@ -323,6 +342,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setSelection,
     selectElement,
     setBuilding,
+    setEngineering,
     linkEvidence,
     setStatus,
     setNavOpen,

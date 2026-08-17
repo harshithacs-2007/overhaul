@@ -13,6 +13,7 @@ import { EvidencePanel } from "@/components/evidence/EvidencePanel";
 import { UploadDropzone } from "@/components/evidence/UploadDropzone";
 import { BuildingCanvas } from "@/components/building/BuildingCanvas";
 import { ManualBuilder } from "@/components/building/ManualBuilder";
+import { PhysicsPanel } from "@/components/building/PhysicsPanel";
 
 const CameraCapture = dynamic(
   () =>
@@ -96,6 +97,8 @@ export function WorkspaceShell() {
                       setNavOpen(false);
                       if (item.id === "evidence") setCenterMode("evidence");
                       if (item.id === "building") setCenterMode("building");
+                      if (item.id === "climate" || item.id === "hvac")
+                        setCenterMode("physics");
                       if (item.id === "overview")
                         setCenterMode(
                           state.evidence.length ? "building" : "first"
@@ -152,6 +155,7 @@ export function WorkspaceShell() {
               {state.centerMode === "manual" && (
                 <ManualBuilder onDone={() => setCenterMode("building")} />
               )}
+              {state.centerMode === "physics" && <PhysicsPanel />}
             </motion.div>
           </AnimatePresence>
 
@@ -159,7 +163,8 @@ export function WorkspaceShell() {
           state.section !== "overview" &&
           state.centerMode !== "camera" &&
           state.centerMode !== "upload" &&
-          state.centerMode !== "manual" ? (
+          state.centerMode !== "manual" &&
+          state.centerMode !== "physics" ? (
             <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-steel/20 bg-navy/90 px-4 py-2 text-center text-xs text-steel">
               {state.section} is upcoming — no fabricated engineering values
               shown.

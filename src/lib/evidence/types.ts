@@ -63,6 +63,15 @@ export interface EvidenceFileRef {
   persistence: "temporary" | "permanent";
 }
 
+export interface EvidencePropertyLink {
+  /** e.g. hvac.systems[0].systemType */
+  propertyPath: string;
+  targetId?: string;
+  /** Manual confirmation distinct from future automated detection */
+  verificationState: "unreviewed" | "needs_review" | "confirmed" | "rejected";
+  note?: string;
+}
+
 export interface EvidenceItem {
   id: string;
   source: EvidenceSource;
@@ -74,6 +83,8 @@ export interface EvidenceItem {
   reviewState: EvidenceReviewState;
   analysisState: EvidenceAnalysisState;
   errorMessage?: string;
+  /** Evidence may support specific model properties — no CV claims */
+  propertyLinks?: EvidencePropertyLink[];
 }
 
 export function createEvidenceId(): string {
