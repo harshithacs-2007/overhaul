@@ -2,27 +2,55 @@
 
 import UniversalDecisionWorkspaceV2 from "./UniversalDecisionWorkspaceV2";
 import AssetTwinViewport from "./AssetTwinViewport";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Scope = "building" | "facility" | "equipment";
 type Assessment = { assessmentSubject?: Scope; siteName?: string | null; assetClass?: string | null; evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }> };
 type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number }> };
+type Values = Record<string, number | string | null>;
+
+function readJson<T>(key: string, fallback: T): T {
+  try { return JSON.parse(sessionStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; }
+}
+
+function canonical(field: string) {
+  return field.toLowerCase().trim().replace(/[()\-\/]+/g, "_").replace(/\s+/g, "_").replace(/_+/g, "_");
+}
 
 export default function AssessmentExperience() {
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [extracts, setExtracts] = useState<Extraction[]>([]);
+  const [supplemental, setSupplemental] = useState<Values>({});
+
   useEffect(() => {
-    try {
-      setAssessment(JSON.parse(sessionStorage.getItem("overhaul:assessment") || "null"));
-      setExtracts(JSON.parse(sessionStorage.getItem("overhaul:evidence-extractions") || "[]"));
-    } catch { setAssessment(null); setExtracts([]); }
+    const sync = () => {
+      setAssessment(readJson<Assessment | null>("overhaul:assessment", null));
+      setExtracts(readJson<Extraction[]>("overhaul:evidence-extractions", []));
+      setSupplemental(readJson<Values>("overhaul:supplemental-values", {}));
+    };
+    sync();
+    window.addEventListener("overhaul:supplemental-change", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("overhaul:supplemental-change", sync);
+      window.removeEventListener("storage", sync);
+    };
   }, []);
 
-  const observations = extracts.flatMap((x) => (x.observations || []).map((o) => ({ key: o.field.toLowerCase().trim().replace(/[()\-\/]+/g, "_").replace(/\s+/g, "_").replace(/_+/g, "_"), value: o.numericValue ?? o.value }))); 
-  const values: Record<string, number | string | null> = {};
-  for (const item of observations) if (typeof item.value === "number" && Number.isFinite(item.value)) values[item.key] = item.value;
-  const supplemental = (() => { try { return JSON.parse(sessionStorage.getItem("overhaul:supplemental-values") || "{}"); } catch { return {}; } })();
-  for (const [key, value] of Object.entries(supplemental)) if (values[key] == null && typeof value === "number" && Number.isFinite(value)) values[key] = value;
+  const values = useMemo<Values>(() => {
+    const next: Values = {};
+    for (const extraction of extracts) {
+      for (const observation of extraction.observations || []) {
+        if (observation.numericValue != null && Number.isFinite(observation.numericValue)) {
+          next[canonical(observation.field)] = observation.numericValue;
+        }
+      }
+    }
+    for (const [key, value] of Object.entries(supplemental)) {
+      if (next[key] == null && typeof value === "number" && Number.isFinite(value)) next[key] = value;
+    }
+    return next;
+  }, [extracts, supplemental]);
 
   const scope = assessment?.assessmentSubject || "building";
   const title = assessment?.siteName || assessment?.assetClass || (scope === "equipment" ? "Asset model" : "Site model");
