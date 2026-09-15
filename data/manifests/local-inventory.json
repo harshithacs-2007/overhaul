@@ -1,0 +1,240 @@
+{
+  "version": "1.0",
+  "generatedFrom": "user-provided local Dataset folder inventory",
+  "datasets": [
+    {
+      "id": "power-point-hourly",
+      "name": "NASA POWER hourly climate export",
+      "domain": "climate",
+      "format": "csv",
+      "path": "climate/POWER_Point_Hourly_20150915_20260915_084d64N_0154d33W_LST.csv",
+      "extracted": true,
+      "notes": ["Treat site coordinates and period as dataset metadata; do not assume it is global coverage."]
+    },
+    {
+      "id": "heating-humidification-design-conditions",
+      "name": "Annual Heating and Humidification Design Conditions",
+      "domain": "climate",
+      "format": "csv",
+      "path": "climate/Annual Heating and Humidification Design Conditions Table.csv",
+      "extracted": true,
+      "notes": ["Keep design-condition provenance distinct from observed weather timeseries."]
+    },
+    {
+      "id": "power-global-zones",
+      "name": "NASA POWER global zones",
+      "domain": "climate",
+      "format": "netcdf",
+      "path": "climate/POWER_Global_Zones_2007_2025.nc",
+      "extracted": true
+    },
+    {
+      "id": "lbnl-rtu-1",
+      "name": "LBNL FDD RTU dataset archive",
+      "domain": "hvac",
+      "format": "zip",
+      "path": "hvac/LBNL_FDD_Data_Sets_RTU_all_3.zip",
+      "extracted": false,
+      "adapter": "lbnl-fdd-tabular"
+    },
+    {
+      "id": "lbnl-rtu-2",
+      "name": "LBNL FDD RTU dataset archive (duplicate download)",
+      "domain": "hvac",
+      "format": "zip",
+      "path": "hvac/LBNL_FDD_Data_Sets_RTU_all__3.zip",
+      "extracted": false,
+      "notes": ["Keep until content hashes are compared with lbnl-rtu-1."]
+    },
+    {
+      "id": "lbnl-sdahu",
+      "name": "LBNL FDD single-duct AHU archive",
+      "domain": "hvac",
+      "format": "zip",
+      "path": "hvac/LBNL_FDD_Data_Sets_SDAHU_all_3.zip",
+      "extracted": false,
+      "adapter": "lbnl-fdd-tabular"
+    },
+    {
+      "id": "lbnl-fcu-1",
+      "name": "LBNL FDD FCU archive",
+      "domain": "hvac",
+      "format": "zip",
+      "path": "hvac/LBNL_FDD_Data_Sets_FCU_all_3.zip",
+      "extracted": false,
+      "adapter": "lbnl-fdd-tabular"
+    },
+    {
+      "id": "lbnl-fcu-2",
+      "name": "LBNL FDD FCU archive (second copy)",
+      "domain": "hvac",
+      "format": "zip",
+      "path": "hvac/LBNL_FDD_Data_Sets_FCU.zip",
+      "extracted": false,
+      "notes": ["Keep until content hashes are compared with lbnl-fcu-1."]
+    },
+    {
+      "id": "lbnl-chiller",
+      "name": "LBNL FDD chiller plant archive",
+      "domain": "hvac",
+      "format": "zip",
+      "path": "hvac/LBNL_FDD_Data_Sets_Chiller_Plant_all_3.zip",
+      "extracted": false,
+      "adapter": "lbnl-fdd-tabular"
+    },
+    {
+      "id": "lbnl-ddahu",
+      "name": "LBNL FDD dual-duct AHU archive",
+      "domain": "hvac",
+      "format": "zip",
+      "path": "hvac/LBNL_FDD_Data_Sets_DDAHU_all_3.zip",
+      "extracted": false,
+      "adapter": "lbnl-fdd-tabular"
+    },
+    {
+      "id": "lbnl-fcu-documentation",
+      "name": "LBNL FDD FCU documentation",
+      "domain": "hvac",
+      "format": "pdf",
+      "path": "hvac/LBNL_FDD_Data_Sets_FCU.pdf",
+      "extracted": true,
+      "notes": ["Documentation is reference material, not a numeric timeseries dataset."]
+    },
+    {
+      "id": "rescast-house-features",
+      "name": "RESCAST 100k house features",
+      "domain": "buildings",
+      "format": "parquet",
+      "path": "buildings/house_features_rescast-100k.parquet",
+      "extracted": true,
+      "adapter": "rescast-tabular"
+    },
+    {
+      "id": "remdb-2024",
+      "name": "REMDB 2024 retrofit database",
+      "domain": "retrofit",
+      "format": "xlsx",
+      "path": "retrofit/REMDB_2024.12.23.xlsx",
+      "extracted": true,
+      "adapter": "remdb-workbook"
+    },
+    {
+      "id": "structured3d",
+      "name": "Structured3D archive",
+      "domain": "3d",
+      "format": "zip",
+      "path": "3d/Structured3D-master.zip",
+      "extracted": false,
+      "adapter": "structured3d"
+    },
+    {
+      "id": "objaverse-xl",
+      "name": "Objaverse XL archive",
+      "domain": "3d",
+      "format": "zip",
+      "path": "3d/objaverse-xl-main.zip",
+      "extracted": false,
+      "adapter": "objaverse"
+    },
+    {
+      "id": "objaverse-object-paths",
+      "name": "Objaverse object path index",
+      "domain": "3d",
+      "format": "json",
+      "path": "3d/object-paths.json.gz",
+      "extracted": true
+    },
+    {
+      "id": "lvis-annotations",
+      "name": "LVIS annotations",
+      "domain": "3d",
+      "format": "json",
+      "path": "3d/lvis-annotations.json.gz",
+      "extracted": true
+    },
+    {
+      "id": "unknown-0000-parquet",
+      "name": "Unidentified 0000 parquet",
+      "domain": "unknown",
+      "format": "parquet",
+      "path": "unknown/0000.parquet",
+      "extracted": true,
+      "notes": ["Profile before assigning an engineering domain."]
+    },
+    {
+      "id": "unknown-data-parquet",
+      "name": "Unidentified data parquet",
+      "domain": "unknown",
+      "format": "parquet",
+      "path": "unknown/data.parquet",
+      "extracted": true,
+      "notes": ["Profile before assigning an engineering domain."]
+    },
+    {
+      "id": "unknown-data-1-parquet",
+      "name": "Unidentified data (1) parquet",
+      "domain": "unknown",
+      "format": "parquet",
+      "path": "unknown/data (1).parquet",
+      "extracted": true,
+      "notes": ["Profile before assigning an engineering domain."]
+    },
+    {
+      "id": "unknown-archive",
+      "name": "Unidentified archive",
+      "domain": "unknown",
+      "format": "zip",
+      "path": "unknown/archive.zip",
+      "extracted": false
+    },
+    {
+      "id": "unknown-archive-1",
+      "name": "Unidentified archive (1)",
+      "domain": "unknown",
+      "format": "zip",
+      "path": "unknown/archive (1).zip",
+      "extracted": false
+    },
+    {
+      "id": "unknown-archive-2",
+      "name": "Unidentified archive (2)",
+      "domain": "unknown",
+      "format": "zip",
+      "path": "unknown/archive (2).zip",
+      "extracted": false
+    },
+    {
+      "id": "unknown-archive-4",
+      "name": "Unidentified archive (4)",
+      "domain": "unknown",
+      "format": "zip",
+      "path": "unknown/archive (4).zip",
+      "extracted": false
+    },
+    {
+      "id": "unknown-archive-5",
+      "name": "Unidentified archive (5)",
+      "domain": "unknown",
+      "format": "zip",
+      "path": "unknown/archive (5).zip",
+      "extracted": false
+    },
+    {
+      "id": "unknown-archive-6",
+      "name": "Unidentified archive (6)",
+      "domain": "unknown",
+      "format": "zip",
+      "path": "unknown/archive (6).zip",
+      "extracted": false
+    },
+    {
+      "id": "sciencedirect-article-bundle",
+      "name": "ScienceDirect article bundle",
+      "domain": "unknown",
+      "format": "zip",
+      "path": "unknown/ScienceDirect_articles_15Sep2026_09-36-32.542.zip",
+      "extracted": false,
+      "notes": ["Treat as reference material until its contents are profiled."]
+    }
+  ]
+}
