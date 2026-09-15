@@ -70,12 +70,33 @@ export function selectBestPhysicsRecord(
   };
 }
 
+function assertEngineeringInputs(
+  subject: PhysicsDatasetSelection["subject"],
+  usableFields: string[],
+  missingEngineeringInputs: string[],
+): void {
+  const required = subject === "equipment"
+    ? ["loadKW", "ratedCapacityKW", "efficiency", "annualHours", "electricityRateINRPerKWh"]
+    : ["floorAreaM2", "envelopeUA_W_per_K", "outdoorTempC", "hvacCapacityKW", "hvacCOP"];
+
+  const missingRequired = required.filter((field) => !usableFields.includes(field));
+  if (missingRequired.length) {
+    throw new Error(
+      `Insufficient engineering inputs for ${subject} simulation. Missing: ${missingRequired.join(", ")}. ` +
+      `Dataset fields must be mapped to verified engineering quantities before physics simulation. ` +
+      `Candidate missing fields: ${missingEngineeringInputs.join(", ") || "none"}.`,
+    );
+  }
+}
+
 export function simulateDatasetRecord(
   records: NormalizedRecord[],
   subject: PhysicsDatasetSelection["subject"],
   retrofit: Partial<BuildingState> | Partial<EquipmentState>,
 ): DatasetPhysicsResult {
   const selected = selectBestPhysicsRecord(records, subject);
+  assertEngineeringInputs(subject, selected.usableFields, selected.missingEngineeringInputs);
+
   const baseline = subject === "equipment"
     ? equipmentStateFromRecord(selected.record)
     : buildingStateFromRecord(selected.record);
