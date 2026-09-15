@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import RoomScanOverlay from "./RoomScanOverlay";
 import { normalizeExtractionObservations } from "@/lib/evidence/normalizeForEngineering";
 
 type Scope = "building" | "facility" | "equipment";
-type Goal = "energy" | "performance" | "comfort" | "reliability" | "retrofit";
+type Mode = "building" | "industry";
+type Goal = "retrofit" | "performance" | "energy" | "comfort" | "reliability";
 type Industry = "residential" | "commercial" | "healthcare" | "hospitality" | "education" | "retail" | "industrial" | "warehouse" | "cold_storage" | "data_center" | "campus" | "other";
 type EvidenceKind = "scan" | "photo" | "document" | "dataset";
 
@@ -20,30 +21,63 @@ type EvidenceItem = {
   file: File;
 };
 
-const industries: Array<[Industry, string]> = [
-  ["residential", "Residential"], ["commercial", "Commercial"], ["healthcare", "Healthcare"], ["hospitality", "Hospitality"],
-  ["education", "Education"], ["retail", "Retail"], ["industrial", "Industrial"], ["warehouse", "Warehouse"],
-  ["cold_storage", "Cold storage"], ["data_center", "Data center"], ["campus", "Campus"], ["other", "Other"],
+const buildingTypes: Array<[string, string, Industry]> = [
+  ["Home", "House / villa / residence", "residential"],
+  ["Apartment", "Flat / apartment / residential tower", "residential"],
+  ["Office", "Office / commercial building", "commercial"],
+  ["Hospital", "Hospital / clinical building", "healthcare"],
+  ["Hotel", "Hotel / resort / hospitality", "hospitality"],
+  ["School", "School / college / education", "education"],
+  ["Retail", "Shop / mall / retail space", "retail"],
+  ["Other", "Any other built space", "other"],
 ];
-const equipmentOptions = ["Chiller", "Compressor", "Pump", "Boiler", "Cooling tower", "Fan / motor", "Refrigeration", "Process equipment"];
+
+const industryTypes: Array<[string, Industry, string]> = [
+  ["Manufacturing", "industrial", "Plant / factory / production line"],
+  ["Warehouse", "warehouse", "Storage / logistics / distribution"],
+  ["Cold storage", "cold_storage", "Refrigerated storage / cold chain"],
+  ["Data center", "data_center", "Compute / server infrastructure"],
+  ["Healthcare", "healthcare", "Hospital / clinic / care facility"],
+  ["Hospitality", "hospitality", "Hotel / resort / commercial kitchen"],
+  ["Retail / commercial", "commercial", "Commercial building / retail"],
+  ["Campus", "campus", "Large multi-building site"],
+  ["Other", "other", "Other industrial or facility asset"],
+];
+
+const equipmentTypes = [
+  "Air conditioner / HVAC",
+  "Chiller",
+  "Refrigerator / freezer",
+  "Heat pump",
+  "Fan / motor",
+  "Pump",
+  "Compressor",
+  "Boiler / water heater",
+  "Cooling tower",
+  "Washing machine / appliance",
+  "Process equipment",
+  "Other machine",
+];
+
 const goals: Array<[Goal, string, string]> = [
-  ["energy", "Energy", "Find avoidable consumption"], ["performance", "Performance", "Compare expected vs observed"],
-  ["comfort", "Comfort", "Reduce thermal discomfort"], ["reliability", "Reliability", "Find failure risks"], ["retrofit", "Retrofit", "Prioritize interventions"],
+  ["retrofit", "Retrofit", "Find an intervention, simulate it, then verify it."],
+  ["performance", "Performance", "Compare actual behaviour against a defensible reference."],
+  ["energy", "Energy", "Find avoidable energy use without inventing a baseline."],
+  ["comfort", "Comfort", "Trace thermal conditions to equipment or envelope changes."],
+  ["reliability", "Reliability", "Find maintenance or replacement pathways with evidence."],
 ];
 
 function uid() { return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
 function inferKind(file: File): EvidenceKind {
   const name = file.name.toLowerCase();
-  if (name.includes("scan") || name.includes("capture")) return "scan";
   if (/\.(csv|tsv|json)$/.test(name) || /^(text\/(csv|tab-separated-values)|application\/json)$/.test(file.type)) return "dataset";
   return file.type === "application/pdf" ? "document" : "photo";
 }
 
-async function analyzeWithConcurrency(items: EvidenceItem[], scope: Scope, industry: Industry, onProgress: () => void) {
+async function analyzeEvidence(items: EvidenceItem[], scope: Scope, industry: Industry, onProgress: () => void) {
   const results: unknown[] = [];
   const failures: string[] = [];
   let cursor = 0;
-
   async function worker() {
     while (true) {
       const index = cursor++;
@@ -57,9 +91,9 @@ async function analyzeWithConcurrency(items: EvidenceItem[], scope: Scope, indus
         form.append("subject", scope);
         form.append("industry", industry);
         const response = await fetch("/api/evidence/extract", { method: "POST", body: form });
-        const payload = await response.json() as { result?: { observations?: Array<{ field: string; value: string; numericValue: number | null; unit: string | null; confidence: number; sourceText?: string; notes?: string }> }; error?: string };
+        const payload = await response.json() as { result?: unknown; error?: string };
         if (!response.ok || !payload.result) throw new Error(payload.error || "Evidence analysis failed");
-        results[index] = normalizeExtractionObservations({ ...payload.result, evidenceId: item.id, sourceKind: item.kind, sourceName: item.name });
+        results[index] = normalizeExtractionObservations({ ...(payload.result as Record<string, unknown>), evidenceId: item.id, sourceKind: item.kind, sourceName: item.name });
       } catch (error) {
         failures[index] = `${item.name}: ${error instanceof Error ? error.message : "analysis failed"}`;
       } finally {
@@ -67,7 +101,6 @@ async function analyzeWithConcurrency(items: EvidenceItem[], scope: Scope, indus
       }
     }
   }
-
   await Promise.all(Array.from({ length: Math.min(3, items.length) }, () => worker()));
   return { results: results.filter(Boolean), failures: failures.filter(Boolean) };
 }
@@ -75,137 +108,209 @@ async function analyzeWithConcurrency(items: EvidenceItem[], scope: Scope, indus
 export default function OverhaulIntakeV2() {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
+  const [mode, setMode] = useState<Mode | null>(null);
   const [scope, setScope] = useState<Scope>("building");
   const [industry, setIndustry] = useState<Industry>("commercial");
   const [goal, setGoal] = useState<Goal>("retrofit");
-  const [equipmentType, setEquipmentType] = useState("");
+  const [assetClass, setAssetClass] = useState("");
   const [siteName, setSiteName] = useState("");
   const [assetAge, setAssetAge] = useState("");
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisCount, setAnalysisCount] = useState(0);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [scanMeta, setScanMeta] = useState<{ coveragePercent?: number; completed?: boolean } | null>(null);
+  const [details, setDetails] = useState<Record<string, string>>({});
 
-  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
+  useEffect(() => {
+    const sync = () => {
+      try { setScanMeta(JSON.parse(sessionStorage.getItem("overhaul:room-scan") || "null")); } catch { setScanMeta(null); }
+    };
+    sync();
+    window.addEventListener("overhaul:evidence-change", sync);
+    return () => window.removeEventListener("overhaul:evidence-change", sync);
+  }, []);
 
-  const addFiles = (kind: EvidenceKind | null, files: File[]) => {
+  const selectedIndustryName = useMemo(() => industryTypes.find(([, value]) => value === industry)?.[0] || "Other", [industry]);
+
+  const chooseMode = (nextMode: Mode) => {
+    setMode(nextMode);
+    if (nextMode === "building") {
+      setScope("building");
+      setAssetClass("Home");
+      setIndustry("residential");
+    } else {
+      setScope("facility");
+      setAssetClass("Facility");
+      setIndustry("industrial");
+    }
+    setStep(1);
+  };
+
+  const selectBuildingType = (label: string, nextIndustry: Industry) => {
+    setScope("building");
+    setAssetClass(label);
+    setIndustry(nextIndustry);
+  };
+
+  const addFiles = (files: File[]) => {
     const remaining = Math.max(0, 8 - evidence.length);
-    const next = files
-      .filter((file) => file.size > 0 && file.size <= 25 * 1024 * 1024)
-      .slice(0, remaining)
-      .map((file) => ({ id: uid(), kind: kind || inferKind(file), name: file.name || "Untitled evidence", type: file.type, size: file.size, previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, file }));
+    const next = files.filter((file) => file.size > 0 && file.size <= 25 * 1024 * 1024).slice(0, remaining).map((file) => ({
+      id: uid(), kind: inferKind(file), name: file.name || "Evidence", type: file.type, size: file.size,
+      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null, file,
+    }));
     setEvidence((current) => [...current, ...next]);
     setAnalysisError(null);
   };
 
   const removeEvidence = (id: string) => {
     setEvidence((current) => {
-      const item = current.find((x) => x.id === id);
+      const item = current.find((value) => value.id === id);
       if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
-      return current.filter((x) => x.id !== id);
+      return current.filter((value) => value.id !== id);
     });
   };
 
-  const openCamera = async () => {
-    setCameraError(null);
+  const openScan = () => window.dispatchEvent(new CustomEvent("overhaul:open-room-scan"));
+
+  const saveDetails = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const numeric = Object.fromEntries(Object.entries(details).flatMap(([key, value]) => {
+      if (!value.trim()) return [];
+      const number = Number(value);
+      return Number.isFinite(number) ? [[key, number]] : [[key, value]];
+    }));
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-      streamRef.current = stream;
-      setCameraOpen(true);
-      requestAnimationFrame(() => { if (videoRef.current) videoRef.current.srcObject = stream; });
-    } catch (error) {
-      setCameraError(error instanceof Error ? error.message : "Camera access unavailable.");
-    }
+      const current = JSON.parse(sessionStorage.getItem("overhaul:supplemental-values") || "{}");
+      sessionStorage.setItem("overhaul:supplemental-values", JSON.stringify({ ...current, ...numeric }));
+    } catch {}
+    setStep(3);
   };
 
-  const closeCamera = () => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    setCameraOpen(false);
-  };
-
-  const captureFrame = async () => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
-    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
-    if (blob) addFiles("scan", [new File([blob], `scan-${evidence.length + 1}.jpg`, { type: "image/jpeg" })]);
-  };
-
-  const analyzeEvidence = async () => {
-    if (!evidence.length || analyzing) return;
+  const startAnalysis = async () => {
+    if ((!evidence.length && !scanMeta?.coveragePercent) || analyzing) return;
     setAnalyzing(true);
     setAnalysisError(null);
     setAnalysisCount(0);
     try {
-      const { results, failures } = await analyzeWithConcurrency(evidence, scope, industry, () => setAnalysisCount((value) => value + 1));
-      if (!results.length) throw new Error(failures[0] || "No evidence could be analyzed.");
+      const { results, failures } = evidence.length ? await analyzeEvidence(evidence, scope, industry, () => setAnalysisCount((value) => value + 1)) : { results: [], failures: [] };
       const assessment = {
         assessmentSubject: scope,
         assessmentGoal: goal,
         industry,
         siteName: siteName.trim() || null,
-        assetClass: scope === "equipment" ? equipmentType || "Other machinery" : null,
+        assetClass: assetClass.trim() || (scope === "equipment" ? "Other machine" : "Site"),
         assetAgeYears: assetAge.trim() ? Number(assetAge) : null,
         createdAt: new Date().toISOString(),
         evidence: evidence.map(({ file: _file, previewUrl: _preview, ...item }) => item),
-        context: { industry, siteName: siteName.trim() || null, assetClass: scope === "equipment" ? equipmentType || "Other machinery" : null, assetAgeYears: assetAge.trim() ? Number(assetAge) : null },
-        status: "evidence-analyzed" as const,
+        context: { industry, siteName: siteName.trim() || null, assetClass: assetClass.trim(), mode },
+        status: "model-ready" as const,
       };
-      sessionStorage.setItem("overhaul:evidence-extractions", JSON.stringify(results));
+      if (results.length) sessionStorage.setItem("overhaul:evidence-extractions", JSON.stringify(results));
+      else sessionStorage.setItem("overhaul:evidence-extractions", JSON.stringify([]));
       sessionStorage.setItem("overhaul:assessment", JSON.stringify(assessment));
-      if (failures.length) setAnalysisError(`${results.length} analyzed. ${failures.length} skipped: ${failures.join(" · ")}`);
       window.dispatchEvent(new CustomEvent("overhaul:evidence-change"));
+      if (failures.length) setAnalysisError(`${failures.length} evidence item${failures.length === 1 ? "" : "s"} could not be analyzed. The scan and successful evidence were retained.`);
       router.push("/assessment");
     } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : "Evidence analysis failed.");
+      setAnalysisError(error instanceof Error ? error.message : "Could not prepare the assessment.");
     } finally {
       setAnalyzing(false);
     }
   };
 
-  const scopeLabel = scope === "building" ? "Building" : scope === "facility" ? "Facility" : "Equipment";
-  const scanLabel = scope === "equipment" ? "Scan machine / appliance" : "Scan room / space";
+  const buildingSelected = assetClass || "Home";
+  const industrySelected = assetClass || "Facility";
+  const canContinueFromSelection = mode === "building" ? Boolean(assetClass) : Boolean(assetClass);
+  const canContinueFromEvidence = Boolean(evidence.length || scanMeta?.coveragePercent);
 
   return (
-    <main className="min-h-screen bg-[#050707] text-paper">
+    <main className="min-h-screen overflow-x-hidden bg-[#050707] text-paper">
       <RoomScanOverlay scope={scope} />
-      <div className="flex min-h-screen">
-        <aside className="hidden w-[240px] shrink-0 border-r border-steel/15 bg-[#070909] lg:flex lg:flex-col">
-          <div className="px-6 py-7"><p className="font-mono text-[9px] uppercase tracking-[0.26em] text-teal">OVERHAUL</p><p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-steel">Engineering intelligence</p></div>
-          <div className="border-y border-steel/10 px-4 py-5"><p className="px-2 font-mono text-[8px] uppercase tracking-[0.16em] text-steel">Current inspection</p><div className="mt-3 border border-teal/25 bg-teal/[0.04] px-3 py-3"><p className="font-mono text-[8px] uppercase text-teal">{scopeLabel}</p><p className="mt-1 text-[10px] text-steel">Start with evidence. OVERHAUL fills nothing in by guesswork.</p></div></div>
-          <nav className="px-4 py-5">{[["01", "Observe"], ["02", "Understand"], ["03", "Simulate"], ["04", "Decide"]].map(([n, title], index) => <div key={n} className={`mb-1 border px-3 py-3 ${index === 0 ? "border-teal/20 bg-teal/[0.04]" : "border-transparent"}`}><div className="flex gap-3"><span className="font-mono text-[8px] text-teal">{n}</span><p className="text-[10px]">{title}</p></div></div>)}</nav>
-          <div className="mt-auto border-t border-steel/10 px-6 py-5"><p className="font-mono text-[8px] uppercase tracking-[0.12em] text-steel">Guardrails</p><p className="mt-2 text-[8px] leading-4 text-steel">Every engineering number must remain traceable to evidence or an explicit user input.</p></div>
-        </aside>
+      <div className="mx-auto flex min-h-screen max-w-[1500px] flex-col px-4 py-4 sm:px-6 lg:px-8">
+        <header className="flex items-center justify-between border-b border-steel/15 pb-4">
+          <div><p className="font-mono text-[9px] uppercase tracking-[0.28em] text-teal">OVERHAUL</p><p className="mt-1 font-mono text-[8px] uppercase tracking-[0.14em] text-steel">Universal retrofit intelligence</p></div>
+          <div className="font-mono text-[8px] uppercase tracking-[0.12em] text-steel">{step === 0 ? "Entry" : `0${step} / 03`}</div>
+        </header>
 
-        <section className="min-w-0 flex-1">
-          <header className="flex items-center justify-between border-b border-steel/15 px-5 py-4 sm:px-8"><div><p className="font-mono text-[8px] uppercase tracking-[0.16em] text-teal">New assessment</p><h1 className="mt-1 font-display text-2xl sm:text-3xl">Start with what you have.</h1></div><button type="button" onClick={() => fileInput.current?.click()} className="border border-paper/25 px-3 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-paper hover:border-teal hover:text-teal">+ Add evidence</button></header>
+        {step === 0 && (
+          <section className="grid flex-1 place-items-center py-12 sm:py-20">
+            <div className="w-full max-w-6xl">
+              <div className="grid gap-8 lg:grid-cols-[1.2fr_.8fr] lg:items-end">
+                <div>
+                  <p className="font-mono text-[9px] uppercase tracking-[0.24em] text-teal">Welcome to OVERHAUL</p>
+                  <h1 className="mt-4 max-w-4xl font-display text-6xl leading-[0.88] sm:text-7xl lg:text-8xl">Know what it is.<br/><span className="text-teal">Know how it behaves.</span><br/>Then overhaul it.</h1>
+                  <p className="mt-7 max-w-2xl text-sm leading-6 text-steel sm:text-base">A retrofit intelligence system for buildings, industrial assets, machines and everyday appliances. Give it evidence. OVERHAUL builds an engineering model, compares actual behaviour with a defensible reference, simulates interventions and shows what changes before you spend.</p>
+                </div>
+                <div className="border-l border-steel/15 pl-5 lg:pl-7">
+                  <p className="font-mono text-[8px] uppercase tracking-[0.18em] text-steel">What happens next</p>
+                  <div className="mt-4 space-y-3 text-[11px] text-paper"><p><span className="mr-3 font-mono text-teal">01</span>Choose the asset path.</p><p><span className="mr-3 font-mono text-teal">02</span>Scan / upload what you already have.</p><p><span className="mr-3 font-mono text-teal">03</span>Fill only the missing engineering details.</p><p><span className="mr-3 font-mono text-teal">04</span>Generate the twin → compare → retrofit.</p></div>
+                  <p className="mt-7 font-mono text-[7px] uppercase tracking-[0.16em] text-steel">Evidence-bound · physics-backed · no guessed measurements</p>
+                </div>
+              </div>
+              <div className="mt-12 grid gap-4 md:grid-cols-2">
+                <button type="button" onClick={() => chooseMode("building")} className="group border border-steel/20 bg-[#080c0c] p-6 text-left transition hover:-translate-y-0.5 hover:border-teal/50 hover:bg-teal/[0.035]"><div className="flex items-start justify-between"><span className="font-mono text-[8px] uppercase tracking-[0.16em] text-teal">01 · Building mode</span><span className="font-mono text-[9px] text-steel group-hover:text-teal">→</span></div><h2 className="mt-5 font-display text-4xl">Buildings & spaces</h2><p className="mt-2 max-w-xl text-[10px] leading-5 text-steel">Home, apartment, office, hospital, hotel, school, retail and other built spaces.</p><div className="mt-7 flex flex-wrap gap-2 font-mono text-[7px] uppercase tracking-[0.1em] text-steel"><span>envelope</span><span>hvac</span><span>comfort</span><span>energy</span></div></button>
+                <button type="button" onClick={() => chooseMode("industry")} className="group border border-steel/20 bg-[#080c0c] p-6 text-left transition hover:-translate-y-0.5 hover:border-amber-200/45 hover:bg-amber-200/[0.02]"><div className="flex items-start justify-between"><span className="font-mono text-[8px] uppercase tracking-[0.16em] text-amber-200">02 · Industry mode</span><span className="font-mono text-[9px] text-steel group-hover:text-amber-200">→</span></div><h2 className="mt-5 font-display text-4xl">Industry, machines & appliances</h2><p className="mt-2 max-w-xl text-[10px] leading-5 text-steel">Factories, warehouses, cold chain, data centers, facilities — and the individual machines inside them.</p><div className="mt-7 flex flex-wrap gap-2 font-mono text-[7px] uppercase tracking-[0.1em] text-steel"><span>machines</span><span>appliances</span><span>process</span><span>reliability</span></div></button>
+              </div>
+            </div>
+          </section>
+        )}
 
-          <div className="mx-auto max-w-[1450px] p-5 sm:p-8"><div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]"><div className="space-y-5">
-            <div className="grid gap-3 md:grid-cols-3">{(["building", "facility", "equipment"] as Scope[]).map((item) => <button key={item} type="button" onClick={() => setScope(item)} className={`relative border p-4 text-left transition ${scope === item ? "border-teal/55 bg-teal/[0.07]" : "border-steel/15 bg-[#080c0c] hover:border-steel/40"}`}><p className="font-mono text-[8px] uppercase tracking-[0.15em] text-teal">{item}</p><p className="mt-2 font-display text-2xl">{item === "building" ? "Building" : item === "facility" ? "Facility" : "Equipment"}</p><p className="mt-1 text-[9px] leading-4 text-steel">{item === "building" ? "Home, apartment, office, school, hospital" : item === "facility" ? "Plant, warehouse, cold store, campus" : "Chiller, pump, compressor, motor, boiler or other machine"}</p>{scope === item ? <span className="mt-3 inline-block font-mono text-[7px] uppercase tracking-[0.12em] text-teal">Selected</span> : null}</button>)}</div>
+        {step === 1 && (
+          <section className="flex-1 py-8 sm:py-12">
+            <div className="mx-auto max-w-6xl"><button type="button" onClick={() => setStep(0)} className="font-mono text-[8px] uppercase tracking-[0.12em] text-steel hover:text-paper">← Back</button><div className="mt-5 grid gap-8 lg:grid-cols-[.72fr_1.28fr]">
+              <div><p className="font-mono text-[8px] uppercase tracking-[0.18em] text-teal">Step 01 · Define the asset</p><h2 className="mt-2 font-display text-5xl">What are we overhauling?</h2><p className="mt-3 text-[11px] leading-5 text-steel">Pick the closest category. This only shapes the evidence and engineering path; it does not create measurements.</p><div className="mt-7 border border-steel/15 p-4"><p className="font-mono text-[7px] uppercase text-steel">Objective</p><div className="mt-3 space-y-2">{goals.map(([value, label, note]) => <button key={value} type="button" onClick={() => setGoal(value)} className={`w-full border p-3 text-left ${goal === value ? "border-teal/40 bg-teal/[0.04]" : "border-steel/10 hover:border-steel/30"}`}><p className="text-[11px]">{label}</p><p className="mt-1 text-[8px] leading-4 text-steel">{note}</p></button>)}</div></div></div>
+              <div>{mode === "building" ? <><p className="font-mono text-[7px] uppercase tracking-[0.14em] text-steel">Building type</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{buildingTypes.map(([label, note, nextIndustry]) => <button key={label} type="button" onClick={() => selectBuildingType(label, nextIndustry)} className={`border p-5 text-left transition ${buildingSelected === label ? "border-teal/45 bg-teal/[0.05]" : "border-steel/15 bg-[#080c0c] hover:border-steel/35"}`}><p className="font-display text-2xl">{label}</p><p className="mt-1 text-[9px] leading-4 text-steel">{note}</p></button>)}</div></> : <><p className="font-mono text-[7px] uppercase tracking-[0.14em] text-steel">Industry / facility</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{industryTypes.map(([label, value, note]) => <button key={label} type="button" onClick={() => { setIndustry(value); setScope("facility"); setAssetClass(label); }} className={`border p-5 text-left transition ${industrySelected === label ? "border-amber-200/45 bg-amber-200/[0.03]" : "border-steel/15 bg-[#080c0c] hover:border-steel/35"}`}><p className="font-display text-2xl">{label}</p><p className="mt-1 text-[9px] leading-4 text-steel">{note}</p></button>)}</div><div className="mt-5 border border-steel/15 p-5"><p className="font-mono text-[7px] uppercase tracking-[0.12em] text-amber-200">Or inspect one machine / appliance</p><div className="mt-3 flex flex-wrap gap-2">{equipmentTypes.map((value) => <button key={value} type="button" onClick={() => { setScope("equipment"); setAssetClass(value); }} className={`border px-3 py-2 text-[9px] ${scope === "equipment" && assetClass === value ? "border-amber-200/50 bg-amber-200/[0.04] text-amber-100" : "border-steel/15 text-steel hover:border-steel/35 hover:text-paper"}`}>{value}</button>)}</div></div></>}
+              <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-steel/15 pt-5"><div className="text-[9px] text-steel">Selected · <span className="text-paper">{assetClass || "Choose a type"}</span><span className="ml-2 text-steel">· {selectedIndustryName}</span></div><button type="button" disabled={!canContinueFromSelection} onClick={() => setStep(2)} className="border border-teal/40 bg-teal/[0.06] px-5 py-3 font-mono text-[8px] uppercase tracking-[0.14em] text-teal disabled:cursor-not-allowed disabled:opacity-30">Continue to evidence →</button></div>
+              </div>
+            </div></div>
+          </section>
+        )}
 
-            <div className="border border-steel/15 bg-[#080c0c]"><div className="border-b border-steel/10 px-4 py-4 sm:px-5"><p className="font-mono text-[8px] uppercase tracking-[0.14em] text-teal">Step 1 · Evidence</p><h2 className="mt-1 font-display text-3xl">Show it. Don't describe it.</h2><p className="mt-1 max-w-2xl text-[10px] leading-5 text-steel">Upload whatever already exists: a photo, nameplate, bill, floor plan, drawing, manual, inspection report or meter export. One useful artifact is enough to start.</p></div>
-              <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1.15fr_0.85fr]"><div className={`relative grid min-h-[370px] place-items-center overflow-hidden border bg-black/15 transition ${dragging ? "border-teal bg-teal/[0.04]" : "border-dashed border-steel/25"}`} onDragEnter={(e) => { e.preventDefault(); setDragging(true); }} onDragOver={(e) => e.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(null, Array.from(e.dataTransfer.files)); }}><div className="absolute inset-0 opacity-25" style={{ backgroundImage: "linear-gradient(rgba(138,155,168,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(138,155,168,.10) 1px,transparent 1px)", backgroundSize: "36px 36px" }} /><div className="relative z-10 max-w-lg px-6 text-center"><div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-teal/30 bg-teal/[0.04] font-mono text-xl text-teal">＋</div><p className="mt-4 font-display text-2xl">Drop anything useful.</p><p className="mt-2 text-[10px] leading-5 text-steel">You don't need to know the engineering parameters. OVERHAUL extracts what the evidence actually establishes, records where it came from, and asks only for information that can change the result.</p><div className="mt-5 flex flex-wrap justify-center gap-2"><button type="button" onClick={() => fileInput.current?.click()} className="border border-paper/30 bg-paper px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-navy">Upload evidence</button><button type="button" onClick={openCamera} className="border border-teal/40 px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-teal">Use camera</button><button type="button" onClick={() => document.querySelector<HTMLButtonElement>("button[data-room-scan]")?.click()} className="border border-steel/25 px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-steel hover:text-paper">{scanLabel}</button></div><p className="mt-3 font-mono text-[7px] uppercase tracking-[0.1em] text-steel">Up to 8 artifacts · 25 MB each · images + PDF + CSV / TSV / JSON</p></div></div>
-                <div className="flex min-h-[370px] flex-col border border-steel/10 bg-black/10 p-4"><div className="flex items-center justify-between"><p className="font-mono text-[8px] uppercase tracking-[0.14em] text-steel">Evidence shelf</p><span className={`font-mono text-[8px] ${evidence.length ? "text-teal" : "text-steel"}`}>{evidence.length}/8</span></div><div className="mt-3 flex-1 space-y-2 overflow-auto pr-1">{evidence.length ? evidence.map((item, index) => <div key={item.id} className="flex gap-3 border border-steel/10 bg-[#080b0b] p-2.5">{item.previewUrl ? <img src={item.previewUrl} alt="Evidence preview" className="h-14 w-18 shrink-0 object-cover" /> : <div className="grid h-14 w-18 shrink-0 place-items-center bg-steel/[0.05] font-mono text-[7px] text-steel">{item.kind === "dataset" ? "DATA" : item.type === "application/pdf" ? "PDF" : "FILE"}</div>}<div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><p className="truncate text-[9px]">{item.name}</p><span className="font-mono text-[7px] text-steel">0{index + 1}</span></div><p className="mt-1 font-mono text-[7px] uppercase text-steel">{item.kind} · evidence only</p><button type="button" onClick={() => removeEvidence(item.id)} className="mt-2 font-mono text-[7px] uppercase text-clay">Remove</button></div></div>) : <div className="grid h-full place-items-center text-center"><div><p className="text-sm text-steel">Nothing captured yet.</p><p className="mt-1 text-[9px] leading-4 text-steel/70">A single nameplate photo or energy bill is enough to begin.</p></div></div>}</div>{cameraOpen ? <div className="mt-3 overflow-hidden border border-teal/20"><video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full bg-black object-cover"/><div className="flex gap-2 p-2"><button type="button" onClick={captureFrame} className="border border-teal px-3 py-1.5 font-mono text-[7px] uppercase text-teal">Capture</button><button type="button" onClick={closeCamera} className="border border-steel/20 px-3 py-1.5 font-mono text-[7px] uppercase text-steel">Close camera</button></div></div> : null}{cameraError ? <p className="mt-2 text-[9px] text-clay">{cameraError}</p> : null}</div>
-              </div></div>
-
-            <div className="border border-steel/15 bg-[#080c0c]"><button type="button" onClick={() => setDetailsOpen((value) => !value)} className="flex w-full items-center justify-between px-4 py-4 text-left sm:px-5"><div><p className="font-mono text-[8px] uppercase tracking-[0.14em] text-steel">Step 2 · Optional context</p><p className="mt-1 text-[10px] text-paper">Help OVERHAUL orient the evidence. Skip anything you don't know.</p></div><span className="font-mono text-[9px] text-teal">{detailsOpen ? "−" : "+"}</span></button>{detailsOpen ? <div className="grid gap-4 border-t border-steel/10 p-4 sm:grid-cols-2 sm:p-5"><label className="block"><span className="font-mono text-[7px] uppercase text-steel">What matters most?</span><div className="mt-2 grid gap-1.5">{goals.map(([value, label, sub]) => <button key={value} type="button" onClick={() => setGoal(value)} className={`border p-2.5 text-left ${goal === value ? "border-teal/35 bg-teal/[0.05]" : "border-steel/10"}`}><p className="text-[9px]">{label}</p><p className="mt-0.5 text-[7px] text-steel">{sub}</p></button>)}</div></label><div className="space-y-4"><label className="block"><span className="font-mono text-[7px] uppercase text-steel">Site / asset name</span><input value={siteName} onChange={(e) => setSiteName(e.target.value)} placeholder="Optional" className="mt-2 w-full border-b border-steel/20 bg-transparent py-2 text-[10px] outline-none focus:border-teal" /></label><label className="block"><span className="font-mono text-[7px] uppercase text-steel">Industry</span><select value={industry} onChange={(e) => setIndustry(e.target.value as Industry)} className="mt-2 w-full border-b border-steel/20 bg-[#080c0c] py-2 text-[10px] outline-none focus:border-teal">{industries.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{scope === "equipment" ? <><label className="block"><span className="font-mono text-[7px] uppercase text-steel">Known machine class</span><select value={equipmentType} onChange={(e) => setEquipmentType(e.target.value)} className="mt-2 w-full border-b border-steel/20 bg-[#080c0c] py-2 text-[10px] outline-none focus:border-teal"><option value="">Let evidence identify it</option>{equipmentOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label><label className="block"><span className="font-mono text-[7px] uppercase text-steel">Approximate age, if known</span><input inputMode="numeric" type="number" min="0" max="100" value={assetAge} onChange={(e) => setAssetAge(e.target.value)} placeholder="Optional" className="mt-2 w-full border-b border-steel/20 bg-transparent py-2 text-[10px] outline-none focus:border-teal" /></label></> : null}</div></div> : null}</div>
+        {step === 2 && (
+          <section className="flex-1 py-8 sm:py-12">
+            <div className="mx-auto max-w-6xl"><button type="button" onClick={() => setStep(1)} className="font-mono text-[8px] uppercase tracking-[0.12em] text-steel hover:text-paper">← Back</button><div className="mt-5 grid gap-7 lg:grid-cols-[1fr_340px]">
+              <div><p className="font-mono text-[8px] uppercase tracking-[0.18em] text-teal">Step 02 · Evidence first</p><h2 className="mt-2 font-display text-5xl">Show me the real asset.</h2><p className="mt-3 max-w-2xl text-[11px] leading-5 text-steel">Start with a 360° room sweep, a machine scan, a nameplate, bills, drawings, manuals, photos or meter data. OVERHAUL will ask for only what the engineering model still needs.</p>
+                <div className="mt-7 grid gap-4 md:grid-cols-[1.2fr_.8fr]">
+                  <button type="button" onClick={openScan} className="group relative min-h-[330px] overflow-hidden border border-teal/30 bg-[radial-gradient(circle_at_50%_50%,rgba(52,211,188,.10),transparent_55%)] p-6 text-left transition hover:border-teal/60"><div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.035)_1px,transparent_1px)] bg-[size:38px_38px] opacity-40"/><div className="relative flex h-full flex-col justify-between"><div><p className="font-mono text-[8px] uppercase tracking-[0.16em] text-teal">Recommended</p><h3 className="mt-3 font-display text-4xl">Hold to scan</h3><p className="mt-2 max-w-md text-[10px] leading-5 text-steel">Keep the button held and slowly rotate around the room or asset. OVERHAUL captures a guided evidence sweep instead of forcing you through 12 separate screenshots.</p></div><div className="mt-8 flex items-center justify-between border-t border-steel/15 pt-5"><span className="font-mono text-[7px] uppercase tracking-[0.12em] text-steel">360° guided capture</span><span className="font-mono text-sm text-teal">◎</span></div></div></button>
+                  <div className="border border-steel/15 bg-[#080c0c] p-5"><p className="font-mono text-[8px] uppercase text-steel">Upload evidence</p><button type="button" onClick={() => fileInput.current?.click()} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); addFiles(Array.from(event.dataTransfer.files)); }} className={`mt-4 grid min-h-[245px] w-full place-items-center border-2 border-dashed p-5 text-center transition ${dragging ? "border-teal bg-teal/[0.04]" : "border-steel/20 hover:border-steel/35"}`}><div><div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-teal/25 font-mono text-xl text-teal">+</div><p className="mt-4 text-sm">Drop files here</p><p className="mt-2 text-[8px] leading-4 text-steel">PDF · images · CSV · TSV · JSON<br/>Up to 8 files · 25 MB each</p></div></button><input ref={fileInput} type="file" className="hidden" multiple accept="image/*,.pdf,.csv,.tsv,.json,text/csv,text/tab-separated-values,application/json" onChange={(event) => { addFiles(Array.from(event.target.files || [])); event.currentTarget.value = ""; }}/></div>
+                </div>
+                <div className="mt-4 grid gap-2">{evidence.map((item) => <div key={item.id} className="flex items-center justify-between gap-4 border border-steel/10 bg-[#080c0c] px-3 py-3"><div className="min-w-0"><p className="truncate text-[10px] text-paper">{item.name}</p><p className="mt-1 font-mono text-[7px] uppercase text-steel">{item.kind} · {(item.size / 1024 / 1024).toFixed(1)} MB</p></div><button type="button" onClick={() => removeEvidence(item.id)} className="font-mono text-[7px] uppercase text-steel hover:text-red-200">remove</button></div>)}</div>
+                {scanMeta?.coveragePercent ? <div className="mt-4 flex items-center justify-between border border-teal/20 bg-teal/[0.04] px-4 py-3"><div><p className="font-mono text-[8px] uppercase text-teal">Spatial evidence captured</p><p className="mt-1 text-[9px] text-steel">{scanMeta.completed ? "360° sweep complete." : `${scanMeta.coveragePercent}% coverage retained.`}</p></div><button type="button" onClick={openScan} className="font-mono text-[8px] uppercase text-teal">scan again →</button></div> : null}
+              </div>
+              <aside className="border border-steel/15 bg-[#080c0c] p-5"><p className="font-mono text-[8px] uppercase tracking-[0.12em] text-steel">Inspection rule</p><p className="mt-3 text-sm leading-6">Do not type numbers you do not know. A photograph can establish existence and condition; it does not establish hidden geometry.</p><div className="mt-6 border-t border-steel/10 pt-5"><p className="font-mono text-[8px] uppercase text-teal">Current path</p><p className="mt-2 text-[10px]">{assetClass}</p><p className="mt-1 text-[9px] text-steel">{scope === "equipment" ? "Machine / appliance" : scope === "facility" ? "Facility / industrial site" : "Building / space"}</p></div><div className="mt-5 border-t border-steel/10 pt-5"><p className="font-mono text-[8px] uppercase text-steel">Next</p><p className="mt-2 text-[9px] leading-5 text-steel">After evidence, OVERHAUL asks for missing physical and operating details. Then the digital twin is created and the retrofit loop begins.</p></div></aside>
+            </div>
+            <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t border-steel/15 pt-5"><div className="text-[9px] text-steel">{analysisError ? <span className="text-amber-200">{analysisError}</span> : canContinueFromEvidence ? `${evidence.length} file${evidence.length === 1 ? "" : "s"} ready${scanMeta?.coveragePercent ? ` · ${scanMeta.coveragePercent}% scan` : ""}.` : "Add evidence or run a scan to continue."}</div><button type="button" onClick={() => setStep(3)} disabled={!canContinueFromEvidence} className="border border-teal/40 bg-teal/[0.06] px-5 py-3 font-mono text-[8px] uppercase tracking-[0.14em] text-teal disabled:cursor-not-allowed disabled:opacity-30">Continue to asset details →</button></div>
           </div>
-
-          <aside className="h-fit border border-steel/15 bg-[#080c0c] p-5 xl:sticky xl:top-5"><p className="font-mono text-[8px] uppercase tracking-[0.15em] text-teal">Before analysis</p><h2 className="mt-1 font-display text-2xl">{scopeLabel}</h2><p className="mt-1 text-[9px] leading-4 text-steel">{goal === "retrofit" ? "Find and compare justified retrofit interventions." : goals.find(([x]) => x === goal)?.[2]}</p><div className="mt-5 border border-steel/10 p-4"><p className="font-mono text-[8px] uppercase tracking-[0.12em] text-steel">What happens next</p><div className="mt-3 space-y-2 text-[9px]"><p><span className="text-teal">01</span> Extract facts + provenance</p><p className="text-steel"><span className="text-teal">02</span> Build the engineering baseline</p><p className="text-steel"><span className="text-teal">03</span> Identify missing decision-critical evidence</p><p className="text-steel"><span className="text-teal">04</span> Simulate only supported interventions</p><p className="text-steel"><span className="text-teal">05</span> Rank the decision and verify it later</p></div></div><div className="mt-5 border border-gold/20 bg-gold/[0.035] p-3"><p className="font-mono text-[7px] uppercase tracking-[0.12em] text-gold">Accuracy rule</p><p className="mt-2 text-[9px] leading-4 text-steel">Evidence values are kept traceable. Known unit conversions are deterministic. Unsupported values stay unknown and block calculations that would otherwise be guesses.</p></div>{analysisError ? <div className="mt-4 border border-clay/25 bg-clay/5 p-3 text-[9px] leading-4 text-clay">{analysisError}</div> : null}{analyzing ? <div className="mt-4 border border-teal/25 bg-teal/5 p-3"><p className="font-mono text-[8px] uppercase text-teal">Reading evidence</p><p className="mt-1 text-[9px] text-steel">{analysisCount}/{evidence.length} artifacts analyzed.</p><div className="mt-2 h-1 overflow-hidden bg-steel/10"><div className="h-full bg-teal transition-all" style={{ width: `${Math.round((analysisCount / Math.max(evidence.length, 1)) * 100)}%` }} /></div></div> : null}<button disabled={!evidence.length || analyzing} onClick={analyzeEvidence} type="button" className="mt-5 w-full border border-teal bg-teal px-4 py-3 font-mono text-[8px] uppercase tracking-[0.13em] text-navy disabled:cursor-not-allowed disabled:opacity-25">{analyzing ? `Inspecting ${analysisCount}/${evidence.length}…` : "Analyze & build assessment"}</button><p className="mt-3 text-center text-[8px] leading-4 text-steel">No “95% ready” meter. Readiness is established from the evidence and model completeness, not the number of files uploaded.</p></aside>
-        </div></div>
-          <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.csv,.tsv,.json" className="hidden" onChange={(e) => { addFiles(null, Array.from(e.target.files ?? [])); e.currentTarget.value = ""; }} />
         </section>
+        )}
+
+        {step === 3 && (
+          <section className="flex-1 py-8 sm:py-12">
+            <div className="mx-auto max-w-5xl"><button type="button" onClick={() => setStep(2)} className="font-mono text-[8px] uppercase tracking-[0.12em] text-steel hover:text-paper">← Back</button><div className="mt-5"><p className="font-mono text-[8px] uppercase tracking-[0.18em] text-teal">Step 03 · Missing details</p><h2 className="mt-2 font-display text-5xl">Give the twin what the evidence could not.</h2><p className="mt-3 max-w-3xl text-[11px] leading-5 text-steel">Only enter values you know or can measure. These become explicit user inputs. They are never disguised as AI observations.</p>
+              <form onSubmit={saveDetails} className="mt-8 grid gap-4 md:grid-cols-2">
+                <Field label="Asset / site name" value={siteName} onChange={setSiteName} placeholder="e.g. West wing / AC-01" />
+                <Field label="Age (years)" value={assetAge} onChange={setAssetAge} placeholder="optional" type="number" />
+                {scope === "equipment" ? <><Field label="Rated capacity (kW)" value={details.rated_capacity_kw || ""} onChange={(value) => setDetails((x) => ({ ...x, rated_capacity_kw: value }))} placeholder="nameplate" type="number" /><Field label="Operating load (kW)" value={details.load_kw || ""} onChange={(value) => setDetails((x) => ({ ...x, load_kw: value }))} placeholder="measured / observed" type="number" /><Field label="Input power (kW)" value={details.power_kw || ""} onChange={(value) => setDetails((x) => ({ ...x, power_kw: value }))} placeholder="meter / nameplate" type="number" /><Field label="Efficiency / COP" value={details.efficiency || ""} onChange={(value) => setDetails((x) => ({ ...x, efficiency: value }))} placeholder="e.g. 3.2 or 0.85" type="number" /><Field label="Runtime (hours / year)" value={details.annual_hours || ""} onChange={(value) => setDetails((x) => ({ ...x, annual_hours: value }))} placeholder="optional" type="number" /></> : <><Field label="Floor area (m²)" value={details.floor_area_m2 || ""} onChange={(value) => setDetails((x) => ({ ...x, floor_area_m2: value }))} placeholder="optional" type="number" /><Field label="Width (m)" value={details.geometry_width_m || ""} onChange={(value) => setDetails((x) => ({ ...x, geometry_width_m: value }))} placeholder="known dimension" type="number" /><Field label="Depth (m)" value={details.geometry_depth_m || ""} onChange={(value) => setDetails((x) => ({ ...x, geometry_depth_m: value }))} placeholder="known dimension" type="number" /><Field label="Height (m)" value={details.geometry_height_m || ""} onChange={(value) => setDetails((x) => ({ ...x, geometry_height_m: value }))} placeholder="known dimension" type="number" /><Field label="HVAC capacity (kW)" value={details.capacity_kw || ""} onChange={(value) => setDetails((x) => ({ ...x, capacity_kw: value }))} placeholder="optional" type="number" /><Field label="HVAC COP / efficiency" value={details.cop || ""} onChange={(value) => setDetails((x) => ({ ...x, cop: value }))} placeholder="optional" type="number" /><Field label="Annual cooling hours" value={details.annual_cooling_hours || ""} onChange={(value) => setDetails((x) => ({ ...x, annual_cooling_hours: value }))} placeholder="optional" type="number" /></>}
+                <div className="md:col-span-2 border border-steel/15 bg-[#080c0c] p-5"><p className="font-mono text-[8px] uppercase tracking-[0.12em] text-teal">What you will get next</p><div className="mt-4 grid gap-3 md:grid-cols-4"><Mini n="01" title="Evidence model"/><Mini n="02" title="Digital twin"/><Mini n="03" title="Expected vs actual"/><Mini n="04" title="Retrofit what-if"/></div><p className="mt-5 text-[9px] leading-5 text-steel">A missing value stays missing. OVERHAUL will show what cannot yet be quantified instead of filling the gap with a guess.</p></div>
+                <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-4 border-t border-steel/15 pt-5"><div className="font-mono text-[8px] uppercase tracking-[0.12em] text-steel">Ready to build · <span className="text-paper">{assetClass}</span></div><button type="submit" onClick={() => void startAnalysis()} className="border border-amber-200/45 bg-amber-200/[0.04] px-6 py-3 font-mono text-[8px] uppercase tracking-[0.14em] text-amber-100 disabled:opacity-40">{analyzing ? `Processing ${analysisCount}/${evidence.length}` : "Build the digital twin →"}</button></div>
+              </form>
+            </div></div>
+          </section>
+        )}
+
+        <footer className="border-t border-steel/10 pt-3 font-mono text-[7px] uppercase tracking-[0.12em] text-steel">OVERHAUL · Evidence → Model → Expected behaviour → Retrofit simulation → Verification</footer>
       </div>
     </main>
   );
+}
+
+function Field({ label, value, onChange, placeholder, type = "text" }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) {
+  return <label className="block"><span className="font-mono text-[7px] uppercase tracking-[0.12em] text-steel">{label}</span><input type={type} inputMode={type === "number" ? "decimal" : undefined} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="mt-2 w-full border border-steel/15 bg-[#080c0c] px-3 py-3 text-sm text-paper outline-none placeholder:text-steel/35 focus:border-teal/45" /></label>;
+}
+
+function Mini({ n, title }: { n: string; title: string }) {
+  return <div className="border border-steel/10 p-3"><p className="font-mono text-[8px] text-teal">{n}</p><p className="mt-2 text-[10px] text-paper">{title}</p></div>;
 }
