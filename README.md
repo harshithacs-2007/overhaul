@@ -1,36 +1,64 @@
-# Overhaul
+# OVERHAUL
 
-Deterministic (non-AI, physics-based) retrofit decision engine that ranks envelope and HVAC retrofit actions together using real formulas and cited engineering data.
+**OVERHAUL is a universal retrofit intelligence engine for buildings, facilities, and equipment.** It turns evidence into an engineering model, compares interventions before money is spent, explains the decision chain, and is designed to verify outcomes after implementation.
 
-**No ML / AI model is used anywhere in this project.**
+The product is **evidence-first and engineering-constrained**. AI/ML components may assist perception, surrogate modeling, or orchestration, but the application does not treat an AI-generated number as an engineering fact. Deterministic physics, explicit reference data, provenance, uncertainty, and evidence gates remain the basis for decision-critical calculations.
+
+## Product flow
+
+`SEE → UNDERSTAND → MODEL → COMPARE → DIAGNOSE → SIMULATE → OPTIMIZE → DECIDE → IMPLEMENT → VERIFY → LEARN`
+
+### Core capabilities
+
+- Evidence-first asset intake for buildings, facilities, and equipment
+- Semantic asset and digital-twin reconstruction
+- Expected-state vs actual-state digital shadow and residual analysis
+- Evidence-backed equipment performance curves
+- Fault detection and diagnostic reasoning
+- Deterministic retrofit intervention simulation
+- Coupled envelope + HVAC reasoning
+- Economics, sensitivity, portfolio optimization, and decision provenance
+- Dataset adapters for climate, building, HVAC/FDD, retrofit, materials, and geometry sources
+- RESCAST surrogate infrastructure where a trained/calibrated model is appropriate
+- Audit-oriented provenance and uncertainty handling
+
+## Data grounding
+
+The repository contains dataset manifests and conservative engineering adapters rather than pretending raw datasets are bundled into the web application. Current adapter coverage includes NASA POWER climate data, LBNL FDD HVAC datasets, RESCAST building data, and REMDB retrofit/economic data.
+
+Source records are promoted into engineering quantities only when their semantics and units are explicit. Encoded categorical fields are not silently interpreted as SI measurements, and missing engineering inputs block calculations instead of being fabricated.
 
 ## Stack
 
-- Next.js (App Router) + TypeScript + Tailwind CSS
-- Supabase (Postgres + RLS) for climate cache
+- Next.js App Router + TypeScript + Tailwind CSS
+- Supabase for persisted climate/data services where configured
 - Framer Motion
-- Deploy: Vercel
+- Vitest
+- Vercel
 
 ## Setup
 
-1. Copy `.env.example` to `.env.local` and fill in Supabase values (optional for local climate fallback).
-2. Run `supabase/schema.sql` in your Supabase SQL editor.
-3. `npm install && npm run dev`
+1. Copy `.env.example` to `.env.local` and configure Supabase values when using the persisted climate services.
+2. Run `supabase/schema.sql` in the Supabase SQL editor when database-backed features are required.
+3. Run `npm install`.
+4. Run `npm run dev`.
 
 ## Environment variables
 
 | Variable | Where | Purpose |
-|----------|-------|---------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Client + server | Supabase project URL (prefer pooler / Supavisor) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client + server | Anon key (RLS-scoped) |
-| `SUPABASE_SERVICE_ROLE_KEY` | **Server only** | Climate cache writes; never expose to client |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Client + server | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client + server | RLS-scoped Supabase access |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Server-side climate cache writes; never expose to the client |
 
-## Calculation engine
+## Engineering architecture
 
-All pure functions live in `src/lib/calculations/` — no UI dependencies. Pipeline: thermal load → HVAC verdict → savings/payback → ranked actions → optional 2035 CMIP6 re-run.
+Pure engineering functions live under `src/lib/engineering/`, with dataset normalization and adapters under `src/lib/data/`. The application keeps evidence acquisition, asset modeling, reference expectations, simulation, diagnostics, economics, and provenance as separable layers so individual calculations can be tested and audited.
 
 ## Scripts
 
-- `npm run dev` — local development
+- `npm run dev` — development server
 - `npm run build` — production build
-- `npm test` — calculation unit tests
+- `npm test` — calculation and engineering unit tests
+- `npm run lint` — ESLint checks
+- `npm run train:rescast` — train the RESCAST surrogate when the required local dataset/training inputs are available
