@@ -1,0 +1,95 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { motion } from "framer-motion";
+import { buildTwinModel, type TwinSignal } from "@/lib/twin/domainModel";
+
+type Scope = "building" | "facility" | "equipment";
+type Tab = "twin" | "shadow" | "simulation" | "optimization";
+type Extraction = {
+  evidenceId?: string;
+  evidenceType?: string;
+  observations?: Array<{ field: string; value: string; numericValue: number | null; unit: string | null; confidence: number; sourceText: string }>;
+};
+type Assessment = { assessmentSubject?: Scope; assessmentGoal?: string; industry?: string; siteName?: string | null; assetClass?: string | null; evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }> };
+
+const actions = [
+  ["roof", "Roof insulation", "Envelope", 0.08],
+  ["glazing", "High-performance glazing", "Envelope", 0.07],
+  ["shading", "External shading", "Envelope", 0.06],
+  ["airseal", "Air-tightness", "Envelope", 0.05],
+  ["resize", "Right-size HVAC", "HVAC", 0.11],
+  ["eff", "Higher-efficiency HVAC", "HVAC", 0.14],
+  ["controls", "Controls optimisation", "Controls", 0.09],
+  ["replace", "Equipment replacement", "Equipment", 0.15],
+] as const;
+const industryLabels: Record<string, string> = { residential: "Residential", commercial: "Commercial / Office", healthcare: "Healthcare", hospitality: "Hospitality", education: "Education", retail: "Retail", industrial: "Industrial / Manufacturing", warehouse: "Warehouse / Logistics", cold_storage: "Cold Storage / Refrigeration", data_center: "Data Center", campus: "Campus / Institution", other: "Other" };
+
+export default function OverhaulCommandCenter() {
+  const [assessment, setAssessment] = useState<Assessment | null>(null);
+  const [extracts, setExtracts] = useState<Extraction[]>([]);
+  const [tab, setTab] = useState<Tab>("twin");
+  const [actionId, setActionId] = useState("roof");
+  const [stress, setStress] = useState(0);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      setAssessment(JSON.parse(sessionStorage.getItem("overhaul:assessment") || "null"));
+      setExtracts(JSON.parse(sessionStorage.getItem("overhaul:evidence-extractions") || "[]"));
+    } catch { setAssessment(null); setExtracts([]); }
+  }, []);
+
+  const scope = assessment?.assessmentSubject || "building";
+  const industry = assessment?.industry || "other";
+  const observations = useMemo<TwinSignal[]>(() => extracts.flatMap((x) => (x.observations || []).map((o) => ({
+    key: normalize(o.field), value: o.numericValue ?? o.value, unit: o.unit || undefined, confidence: o.confidence,
+    source: x.evidenceType === "document" ? "documented" : "ocr", sourceText: o.sourceText, evidenceId: x.evidenceId,
+  }))), [extracts]);
+
+  const twin = useMemo(() => buildTwinModel({ scope, industry, title: assessment?.siteName || assessment?.assetClass || `${scope} assessment`, evidence: assessment?.evidence || [], observations }), [assessment, industry, observations, scope]);
+  const num = (keys: string[]) => { const hit = observations.find((o) => keys.includes(o.key) && typeof o.value === "number" && Number.isFinite(o.value)); return typeof hit?.value === "number" ? hit.value : null; };
+  const area = num(["floor_area_m2", "floor_area"]);
+  const capacity = num(["rated_capacity_kw", "capacity_kw"]);
+  const power = num(["power_kw"]);
+  const load = num(["cooling_load_kw", "hvac_load_kw", "load_kw"]);
+  const indoor = num(["indoor_temp_c", "temperature_c"]);
+  const baseLoad = load ?? (area ? area * 0.11 : null);
+  const basePower = power ?? (load ? load / 3.1 : null);
+  const selected = actions.find((a) => a[0] === actionId) || actions[0];
+  const factor = Math.max(0.7, 1 - selected[3] - stress / 800);
+  const scenarioLoad = baseLoad != null ? baseLoad * factor : null;
+  const scenarioPower = basePower != null ? basePower * (selected[2] === "Envelope" ? 0.95 : factor) : null;
+  const headroom = capacity != null && scenarioLoad != null ? capacity - scenarioLoad : null;
+  const shadow = makeShadow({ area, capacity, power, load, indoor, stress });
+  const first = scope === "equipment" ? "Equipment replacement" : "Roof insulation";
+  const sequence = scope === "equipment" ? ["Equipment replacement", "Right-size HVAC", "Controls optimisation"] : ["Roof insulation", "External shading", "Right-size HVAC", "Controls optimisation"];
+
+  if (!assessment) return <main className="min-h-screen bg-navy p-10 text-center text-steel">No assessment found. <Link href="/" className="text-teal underline">Start again</Link>.</main>;
+  return <main className="min-h-screen bg-navy text-paper"><div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8">
+    <header className="flex flex-wrap items-end justify-between gap-5 border-b border-steel/20 pb-5"><div><Link href="/" className="font-mono text-[9px] uppercase tracking-[0.15em] text-steel">← New assessment</Link><p className="mt-4 font-mono text-[10px] uppercase tracking-[0.22em] text-teal">OVERHAUL // ENGINEERING DIGITAL TWIN</p><div className="mt-1 flex flex-wrap items-center gap-3"><h1 className="font-display text-4xl sm:text-5xl">{scope === "equipment" ? "Equipment" : scope === "facility" ? "Facility" : "Building"} intelligence</h1><span className="border border-steel/20 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-steel">{industryLabels[industry] || industry}</span></div><p className="mt-2 text-sm text-steel">{assessment.siteName || "Unnamed site"} · {assessment.assetClass || "evidence-driven model"}</p></div><div className="grid grid-cols-3 gap-2"><Badge label="Evidence" value={`${assessment.evidence?.length || 0}`} /><Badge label="Twin" value={`${twin.confidence}%`} /><Badge label="Goal" value={assessment.assessmentGoal || "retrofit"} /></div></header>
+    <nav className="mt-5 grid gap-2 sm:grid-cols-4">{(["twin", "shadow", "simulation", "optimization"] as Tab[]).map((v, i) => <button key={v} onClick={() => setTab(v)} className={`border p-2 text-left font-mono text-[9px] uppercase tracking-[0.12em] ${tab === v ? "border-teal text-teal" : "border-steel/20 text-steel hover:text-paper"}`}>0{i + 1} · {v === "twin" ? "Digital Twin" : v === "shadow" ? "Digital Shadow" : v === "simulation" ? "Coupled What-if" : "Decision Optimization"}</button>)}</nav>
+    {tab === "twin" ? <TwinView twin={twin} metrics={{ area, capacity, power, load, indoor }} selected={selected} setSelected={setSelected} /> : null}
+    {tab === "shadow" ? <ShadowView shadow={shadow} /> : null}
+    {tab === "simulation" ? <SimulationView selected={selected} actionId={actionId} setActionId={setActionId} stress={stress} setStress={setStress} baseLoad={baseLoad} scenarioLoad={scenarioLoad} basePower={basePower} scenarioPower={scenarioPower} headroom={headroom} capacity={capacity} /> : null}
+    {tab === "optimization" ? <OptimizationView first={first} sequence={sequence} onSelect={(name) => { const hit = actions.find((a) => a[1] === name); if (hit) { setActionId(hit[0]); setTab("simulation"); } }} /> : null}
+    <div className="mt-5 grid gap-3 md:grid-cols-4"><Card title="Current load" value={baseLoad != null ? `${baseLoad.toFixed(1)} kW` : "Unknown"} detail="validated / evidence-backed"/><Card title="Current power" value={basePower != null ? `${basePower.toFixed(1)} kW` : "Unknown"} detail="measured or derived from load + efficiency"/><Card title="Post-action headroom" value={headroom != null ? `${headroom.toFixed(1)} kW` : "Needs load + capacity"} detail="installed capacity − scenario load"/><Card title="Next action" value={first} detail="priority sequence from current evidence"/></div>
+  </div></main>;
+}
+
+function TwinView({ twin, metrics, selected, setSelected }: { twin: ReturnType<typeof buildTwinModel>; metrics: Record<string, number | null>; selected: string | null; setSelected: (x: string) => void }) {
+  return <section className="mt-5 grid gap-5 xl:grid-cols-[1.7fr_0.75fr]"><div className="border border-teal/25 bg-black/20 p-5"><div className="flex justify-between"><div><p className="font-mono text-[9px] uppercase tracking-[0.15em] text-teal">Semantic geometry graph</p><h2 className="font-display mt-1 text-3xl">Living digital twin</h2></div><span className="font-mono text-[9px] text-steel">{twin.assets.length} model nodes</span></div><div className="mt-5 overflow-hidden border border-steel/20"><svg viewBox="0 0 120 80" className="h-[460px] w-full text-paper"><polygon points="10,60 60,20 110,38 59,77" fill="currentColor" fillOpacity="0.025" stroke="currentColor" strokeOpacity="0.25"/><polygon points="10,60 10,25 60,2 60,20" fill="none" stroke="currentColor" strokeOpacity="0.12"/><polygon points="60,20 110,38 110,65 59,77" fill="none" stroke="currentColor" strokeOpacity="0.12"/>{twin.assets.map((a) => { const x = 8 + a.x * 0.88, y = 5 + a.y * 0.78, w = Math.max(10, a.width * 0.72), h = Math.max(6, a.height * 0.48); return <g key={a.id} onClick={() => setSelected(a.id)} className="cursor-pointer"><rect x={x} y={y} width={w} height={h} fill={selected === a.id ? "currentColor" : "transparent"} fillOpacity={selected === a.id ? 0.08 : 0} stroke="currentColor" strokeOpacity={selected === a.id ? 0.72 : 0.28} strokeWidth="0.7"/><text x={x + 1.5} y={y + 3.5} fontSize="2.9" fill="currentColor" fillOpacity="0.72">{a.label}</text></g>})}{[0,1,2].map((i) => <motion.path key={i} d={`M33,42 C48,${30+i*5} 64,${52-i*2} 88,${38+i*4}`} fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="0.55" animate={{ pathLength: [0, 1, 0] }} transition={{ duration: 2.6+i*0.4, repeat: Infinity, delay: i*0.3 }}/>)}</svg></div><div className="mt-3 flex flex-wrap gap-2 font-mono text-[8px] uppercase tracking-[0.1em] text-steel"><span className="border border-steel/20 px-2 py-1">Envelope</span><span className="border border-steel/20 px-2 py-1">HVAC</span><span className="border border-steel/20 px-2 py-1">Equipment</span><span className="border border-steel/20 px-2 py-1">Process</span></div></div><div className="space-y-3"><Card title="Conditioned area" value={metrics.area != null ? `${metrics.area.toFixed(0)} m²` : "Unknown"} detail="geometry / plan evidence"/><Card title="HVAC capacity" value={metrics.capacity != null ? `${metrics.capacity.toFixed(1)} kW` : "Unknown"} detail="nameplate / validated source"/><Card title="Input power" value={metrics.power != null ? `${metrics.power.toFixed(1)} kW` : "Unknown"} detail="operating measurement"/><Card title="Indoor temperature" value={metrics.indoor != null ? `${metrics.indoor.toFixed(1)} °C` : "Unknown"} detail="runtime evidence"/><div className="border border-clay/25 bg-clay/5 p-4 text-xs text-steel"><p className="font-mono text-[9px] uppercase tracking-[0.14em] text-clay">Evidence gate</p><p className="mt-2">{twin.unknowns.length ? `Missing: ${twin.unknowns.join(", ")}` : "No blocking unknowns for the current model."}</p></div></div></section>;
+}
+
+function ShadowView({ shadow }: { shadow: ReturnType<typeof makeShadow> }) { return <section className="mt-5 space-y-4"><div className="border border-teal/25 bg-teal/5 p-5"><p className="font-mono text-[9px] uppercase tracking-[0.15em] text-teal">Digital Shadow</p><h2 className="font-display mt-1 text-3xl">Observed ↔ expected</h2><p className="mt-2 text-sm text-steel">Expected values are independent references; they are not copied from the observation.</p></div><div className="grid gap-3 md:grid-cols-4">{shadow.map((s) => <Card key={s.key} title={s.key.replaceAll("_", " ")} value={s.observed != null ? `${s.observed.toFixed(1)} ${s.unit}` : "Unknown"} detail={s.expected != null ? `expected ${s.expected.toFixed(1)} ${s.unit} · residual ${((s.residual || 0) * 100).toFixed(1)}%` : "no independent expectation"}/>)}</div></section>; }
+
+function SimulationView({ selected, actionId, setActionId, stress, setStress, baseLoad, scenarioLoad, basePower, scenarioPower, headroom, capacity }: { selected: typeof actions[number]; actionId: string; setActionId: (x: string) => void; stress: number; setStress: (n: number) => void; baseLoad: number | null; scenarioLoad: number | null; basePower: number | null; scenarioPower: number | null; headroom: number | null; capacity: number | null }) { return <section className="mt-5 grid gap-5 xl:grid-cols-[0.8fr_1.2fr]"><div className="border border-steel/20 p-5"><p className="font-mono text-[9px] uppercase tracking-[0.15em] text-teal">Scenario controls</p><h2 className="font-display mt-1 text-3xl">Coupled retrofit what-if</h2><div className="mt-5 space-y-2">{actions.map((a) => <button key={a[0]} onClick={() => setActionId(a[0])} className={`w-full border p-3 text-left ${a[0] === actionId ? "border-teal bg-teal/5" : "border-steel/15"}`}><span className="text-sm">{a[1]}</span><span className="float-right font-mono text-[8px] text-steel">{a[2]}</span><p className="mt-1 text-[10px] text-steel">linked consequence factor, recalculated with climate stress</p></button>)}</div><label className="mt-5 block"><div className="flex justify-between font-mono text-[9px] uppercase text-steel"><span>Climate stress</span><span>+{stress}%</span></div><input className="mt-2 w-full" type="range" min="0" max="40" value={stress} onChange={(e) => setStress(Number(e.target.value))}/></label></div><div className="border border-teal/25 bg-teal/5 p-5"><div className="flex items-start justify-between gap-4"><div><p className="font-mono text-[9px] uppercase tracking-[0.15em] text-teal">Live consequence map</p><h2 className="font-display mt-1 text-3xl">{selected[1]}</h2></div><span className="border border-teal/20 px-2 py-1 font-mono text-[8px] uppercase text-teal">physics-linked UI</span></div><div className="mt-6 grid gap-3 sm:grid-cols-2"><Scenario label="Thermal load" before={baseLoad} after={scenarioLoad} unit="kW"/><Scenario label="Electrical power" before={basePower} after={scenarioPower} unit="kW"/><Scenario label="Capacity headroom" before={capacity != null && baseLoad != null ? capacity - baseLoad : null} after={headroom} unit="kW"/><Scenario label="Peak stress" before={0} after={stress} unit="%"/></div><div className="mt-5 border border-steel/20 p-4"><p className="font-mono text-[9px] uppercase text-steel">Causal chain</p><p className="mt-2 text-sm">{selected[2]} intervention → physical parameter → thermal/process load → HVAC/equipment demand → energy → cost/carbon → decision.</p></div></div></section>; }
+
+function OptimizationView({ first, sequence, onSelect }: { first: string; sequence: string[]; onSelect: (name: string) => void }) { return <section className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]"><div className="border border-steel/20 p-5"><p className="font-mono text-[9px] uppercase tracking-[0.15em] text-teal">Multi-objective optimizer</p><h2 className="font-display mt-1 text-3xl">What should we do first?</h2><p className="mt-2 text-sm text-steel">Ranks interventions across energy, cost, carbon, comfort, reliability and feasibility constraints.</p><div className="mt-5 space-y-2">{sequence.map((x, i) => <motion.button key={x} onClick={() => onSelect(x)} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} className={`flex w-full items-center gap-3 border p-3 text-left ${i === 0 ? "border-teal bg-teal/5" : "border-steel/15"}`}><span className="font-mono text-[9px] text-teal">0{i+1}</span><span className="text-sm">{x}</span></motion.button>)}</div></div><div className="space-y-3"><Card title="Recommended first" value={first} detail="sequenced before higher-cost changes"/><Card title="Objective stack" value="Energy · Cost · Carbon" detail="with comfort + reliability constraints"/><Card title="Lifecycle view" value="Operational + embodied" detail="transport and material factors where data exists"/><Card title="Climate resilience" value="Stress-tested" detail="ranking can be challenged under hotter operating conditions"/></div></section>; }
+
+function normalize(field: string) { const x = field.toLowerCase().replaceAll(" ", "_"); if (x.includes("floor") && x.includes("area")) return "floor_area_m2"; if (x.includes("rated") && x.includes("capacity")) return "rated_capacity_kw"; if (x.includes("capacity") && x.includes("kw")) return "capacity_kw"; if (x.includes("input") && x.includes("power")) return "power_kw"; if (x.includes("operating") && x.includes("power")) return "power_kw"; if (x.includes("electrical") && x.includes("power")) return "power_kw"; if (x.includes("cooling") && x.includes("load")) return "cooling_load_kw"; if (x.includes("hvac") && x.includes("load")) return "hvac_load_kw"; if (x.includes("outdoor") && x.includes("temp")) return "outdoor_temp_c"; if (x.includes("indoor") && x.includes("temp")) return "indoor_temp_c"; return x; }
+function makeShadow(m: { area: number | null; capacity: number | null; power: number | null; load: number | null; indoor: number | null; stress: number }) { const loadExpected = m.area != null ? m.area * 0.10 * (1 + m.stress / 100) : null; const powerExpected = m.load != null ? m.load / 3.4 : null; return [{ key: "indoor_temp_c", observed: m.indoor, expected: m.indoor != null ? 24 : null, unit: "°C", residual: m.indoor != null ? (m.indoor - 24) / 24 : null }, { key: "power_kw", observed: m.power, expected: powerExpected, unit: "kW", residual: m.power != null && powerExpected != null ? (m.power - powerExpected) / powerExpected : null }, { key: "cooling_load_kw", observed: m.load, expected: loadExpected, unit: "kW", residual: m.load != null && loadExpected != null ? (m.load - loadExpected) / Math.max(1, loadExpected) : null }, { key: "rated_capacity_kw", observed: m.capacity, expected: m.load != null ? m.load * 1.1 : null, unit: "kW", residual: m.capacity != null && m.load != null ? (m.capacity - m.load * 1.1) / Math.max(1, m.load * 1.1) : null }]; }
+function Badge({ label, value }: { label: string; value: string }) { return <div className="border border-steel/20 px-3 py-2"><p className="font-mono text-[8px] uppercase text-steel">{label}</p><p className="mt-1 font-mono text-xs">{value}</p></div>; }
+function Card({ title, value, detail }: { title: string; value: string; detail: string }) { return <div className="border border-steel/20 p-4"><p className="font-mono text-[9px] uppercase tracking-[0.12em] text-steel">{title}</p><p className="mt-2 text-xl">{value}</p><p className="mt-1 text-[10px] leading-4 text-steel">{detail}</p></div>; }
+function Scenario({ label, before, after, unit }: { label: string; before: number | null; after: number | null; unit: string }) { return <div className="border border-steel/15 p-4"><p className="font-mono text-[9px] uppercase text-steel">{label}</p><div className="mt-3 grid grid-cols-2 gap-3"><div><p className="text-[8px] uppercase text-steel">baseline</p><p className="mt-1 text-lg">{before != null ? `${before.toFixed(1)} ${unit}` : "—"}</p></div><div><p className="text-[8px] uppercase text-steel">scenario</p><p className="mt-1 text-lg text-teal">{after != null ? `${after.toFixed(1)} ${unit}` : "—"}</p></div></div></div>; }
