@@ -10,7 +10,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 25 * 1024 * 1024;
-const MAX_DATASET_CHARS = 350_000;
+const MAX_DATASET_PARSE_CHARS = 1_000_000;
+const MAX_DATASET_PROMPT_CHARS = 60_000;
 const MAX_DATASET_ROWS = 10_000;
 const MAX_DATASET_COLUMNS = 60;
 const MODEL = "gpt-5.6-terra";
@@ -54,7 +55,7 @@ function parseDelimitedLine(line: string, delimiter: string) {
 
 function parseDataset(text: string, filename: string) {
   const trimmed = text.trim();
-  if (!trimmed) return { headers: [] as string[], rows: [] as string[][] };
+  if (!trimmed) return { headers: [] as string[], rows: [] as string[][], truncated: false };
   if (filename.toLowerCase().endsWith(".json") || trimmed.startsWith("[") || trimmed.startsWith("{")) {
     try {
       const parsed = JSON.parse(trimmed);
@@ -65,21 +66,25 @@ function parseDataset(text: string, filename: string) {
         const value = row[header];
         return value == null ? "" : String(value);
       }));
-      return { headers, rows };
+      return { headers, rows, truncated: false };
     } catch {
-      return { headers: [] as string[], rows: [] as string[][] };
+      return { headers: [] as string[], rows: [] as string[][], truncated: false };
     }
   }
-  const lines = trimmed.split(/\r?\n/).filter((line) => line.trim()).slice(0, MAX_DATASET_ROWS + 1);
-  if (!lines.length) return { headers: [] as string[], rows: [] as string[][] };
-  const delimiter = filename.toLowerCase().endsWith(".tsv") || lines[0].split("\t").length > lines[0].split(",").length ? "\t" : ",";
-  const headers = parseDelimitedLine(lines[0], delimiter).slice(0, MAX_DATASET_COLUMNS).map((header, index) => header || `column_${index + 1}`);
-  const rows = lines.slice(1).map((line) => parseDelimitedLine(line, delimiter).slice(0, headers.length));
-  return { headers, rows };
+  const lines = trimmed.split(/\r?\n/).filter((line) => line.trim());
+  const truncated = lines.length > MAX_DATASET_ROWS + 1;
+  const selectedLines = lines.slice(0, MAX_DATASET_ROWS + 1);
+  if (!selectedLines.length) return { headers: [] as string[], rows: [] as string[][], truncated };
+  const delimiter = filename.toLowerCase().endsWith(".tsv") || selectedLines[0].split("\t").length > selectedLines[0].split(",").length ? "\t" : ",";
+  const headers = parseDelimitedLine(selectedLines[0], delimiter).slice(0, MAX_DATASET_COLUMNS).map((header, index) => header || `column_${index + 1}`);
+  const rows = selectedLines.slice(1).map((line) => parseDelimitedLine(line, delimiter).slice(0, headers.length));
+  return { headers, rows, truncated };
 }
 
 function deterministicDatasetObservations(text: string, filename: string) {
-  const dataset = parseDataset(text.slice(0, MAX_DATASET_CHARS), filename);
+  const parseInput = text.length > MAX_DATASET_PARSE_CHARS ? text.slice(0, MAX_DATASET_PARSE_CHARS) : text;
+  const dataset = parseDataset(parseInput, filename);
+  const truncatedByChars = text.length > MAX_DATASET_PARSE_CHARS;
   if (!dataset.headers.length || !dataset.rows.length) return { observations: [], warnings: ["Dataset could not be parsed into tabular rows."] };
 
   const observations: EvidenceExtractionResponse["observations"] = [];
@@ -90,7 +95,7 @@ function deterministicDatasetObservations(text: string, filename: string) {
     unit: "rows",
     confidence: 1,
     sourceText: `Parsed ${dataset.rows.length} tabular rows from ${filename}.`,
-    notes: "Deterministic count from the uploaded dataset.",
+    notes: truncatedByChars || dataset.truncated ? "Deterministic count from the parsed dataset sample; the upload contains additional data beyond the analyzed sample." : "Deterministic count from the uploaded dataset.",
   });
   observations.push({
     field: "dataset_column_count",
@@ -99,7 +104,7 @@ function deterministicDatasetObservations(text: string, filename: string) {
     unit: "columns",
     confidence: 1,
     sourceText: `Parsed ${dataset.headers.length} columns from ${filename}.`,
-    notes: "Deterministic count from the uploaded dataset.",
+    notes: "Deterministic count from the parsed dataset structure.",
   });
 
   dataset.headers.forEach((header, index) => {
@@ -122,12 +127,12 @@ function deterministicDatasetObservations(text: string, filename: string) {
   return {
     observations,
     warnings: [
-      `Dataset statistics were computed deterministically from ${dataset.rows.length} parsed rows. They describe the uploaded sample and do not by themselves establish a design condition or annual performance baseline.`,
+      `Dataset statistics were computed deterministically from ${dataset.rows.length} parsed rows.${truncatedByChars || dataset.truncated ? " The uploaded file exceeds the analysis sample limit, so these statistics are explicitly sample-bounded." : ""} They do not by themselves establish a design condition or annual performance baseline.`,
     ],
   };
 }
 
-function buildPrompt(filename: string, mimeType: string, datasetText?: string) {
+function buildPrompt(filename: string, mimeType: string, datasetText?: string, datasetWasSampled = false) {
   const evidenceMode = isDatasetType(mimeType, filename) ? "tabular dataset" : mimeType === "application/pdf" ? "document/PDF" : "visual evidence/image";
 
   const datasetRules = isDatasetType(mimeType, filename) ? `
@@ -137,8 +142,10 @@ Dataset-specific rules:
 - You may summarize trends or recurring behavior only when supported by the uploaded rows.
 - Do not convert a dataset average into a design value unless the dataset explicitly states that it is a design/rated value.
 - Distinguish measured/recorded series from rated/nameplate/reference values.
+${datasetWasSampled ? "- The prompt includes a bounded sample of a larger upload; never imply that the sample represents the entire dataset without evidence." : ""}
 ` : "";
 
+  const sample = datasetText ? `\n\nDataset excerpt for analysis (bounded for model context safety):\n${datasetText.slice(0, MAX_DATASET_PROMPT_CHARS)}` : "";
   return `You are OVERHAUL's evidence perception engine for building, facility, and industrial equipment retrofit assessments.
 
 Analyze this ${evidenceMode} file: ${filename}
@@ -162,7 +169,7 @@ Rules:
 - In warnings, explicitly state important limitations or ambiguities.
 - In nextEvidence, request the smallest useful next piece of evidence that could materially reduce uncertainty.
 ${datasetRules}
-Return JSON matching the required schema exactly.${datasetText ? `\n\nDataset excerpt for analysis (truncated only for token safety):\n${datasetText.slice(0, MAX_DATASET_CHARS)}` : ""}`;
+Return JSON matching the required schema exactly.${sample}`;
 }
 
 async function toDataUrl(file: File) {
@@ -177,22 +184,12 @@ export async function POST(request: Request) {
     const file = formData.get("file");
     const evidenceId = String(formData.get("evidenceId") || crypto.randomUUID());
 
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Evidence file is required." }, { status: 400 });
-    }
-
-    if (file.size <= 0 || file.size > MAX_BYTES) {
-      return NextResponse.json({ error: "Evidence file must be non-empty and 25 MB or smaller." }, { status: 413 });
-    }
-
-    if (!isSupportedType(file.type, file.name)) {
-      return NextResponse.json({ error: "OVERHAUL currently analyzes images, PDFs, CSV/TSV datasets and JSON datasets." }, { status: 415 });
-    }
+    if (!(file instanceof File)) return NextResponse.json({ error: "Evidence file is required." }, { status: 400 });
+    if (file.size <= 0 || file.size > MAX_BYTES) return NextResponse.json({ error: "Evidence file must be non-empty and 25 MB or smaller." }, { status: 413 });
+    if (!isSupportedType(file.type, file.name)) return NextResponse.json({ error: "OVERHAUL currently analyzes images, PDFs, CSV/TSV datasets and JSON datasets." }, { status: 415 });
 
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: "Evidence perception is not configured on this deployment." }, { status: 503 });
-    }
+    if (!apiKey) return NextResponse.json({ error: "Evidence perception is not configured on this deployment." }, { status: 503 });
 
     const dataset = isDatasetType(file.type, file.name);
     let datasetText: string | undefined;
@@ -203,16 +200,10 @@ export async function POST(request: Request) {
     }
 
     const content = dataset
-      ? [{ type: "input_text", text: buildPrompt(file.name, file.type, datasetText) }]
+      ? [{ type: "input_text", text: buildPrompt(file.name, file.type, datasetText, Boolean(datasetText && datasetText.length > MAX_DATASET_PROMPT_CHARS)) }]
       : file.type === "application/pdf"
-        ? [
-            { type: "input_file", filename: file.name, file_data: await toDataUrl(file), detail: "high" },
-            { type: "input_text", text: buildPrompt(file.name, file.type) },
-          ]
-        : [
-            { type: "input_text", text: buildPrompt(file.name, file.type) },
-            { type: "input_image", image_url: await toDataUrl(file), detail: "high" },
-          ];
+        ? [{ type: "input_file", filename: file.name, file_data: await toDataUrl(file), detail: "high" }, { type: "input_text", text: buildPrompt(file.name, file.type) }]
+        : [{ type: "input_text", text: buildPrompt(file.name, file.type) }, { type: "input_image", image_url: await toDataUrl(file), detail: "high" }];
 
     const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -232,17 +223,7 @@ export async function POST(request: Request) {
               properties: {
                 evidenceType: { type: "string", enum: ["equipment_nameplate", "equipment", "building_exterior", "building_interior", "mechanical_room", "floorplan", "energy_bill", "technical_document", "other"] },
                 rawText: { type: "string" },
-                observations: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    required: ["field", "value", "numericValue", "unit", "confidence", "sourceText", "notes"],
-                    properties: {
-                      field: { type: "string" }, value: { type: "string" }, numericValue: { type: ["number", "null"] }, unit: { type: ["string", "null"] }, confidence: { type: "number", minimum: 0, maximum: 1 }, sourceText: { type: "string" }, notes: { type: "string" },
-                    },
-                  },
-                },
+                observations: { type: "array", items: { type: "object", additionalProperties: false, required: ["field", "value", "numericValue", "unit", "confidence", "sourceText", "notes"], properties: { field: { type: "string" }, value: { type: "string" }, numericValue: { type: ["number", "null"] }, unit: { type: ["string", "null"] }, confidence: { type: "number", minimum: 0, maximum: 1 }, sourceText: { type: "string" }, notes: { type: "string" } } } },
                 visibleAssets: { type: "array", items: { type: "string" } },
                 warnings: { type: "array", items: { type: "string" } },
                 nextEvidence: { type: "array", items: { type: "string" } },
@@ -272,14 +253,7 @@ export async function POST(request: Request) {
       sanitized.warnings = [...deterministicStats.warnings, ...sanitized.warnings];
     }
 
-    const result: EvidenceExtractionResponse = {
-      evidenceId,
-      filename: file.name,
-      mimeType: file.type || (file.name.toLowerCase().endsWith(".csv") ? "text/csv" : "application/octet-stream"),
-      model: MODEL,
-      ...sanitized,
-    };
-
+    const result: EvidenceExtractionResponse = { evidenceId, filename: file.name, mimeType: file.type || (file.name.toLowerCase().endsWith(".csv") ? "text/csv" : "application/octet-stream"), model: MODEL, ...sanitized };
     return NextResponse.json({ result });
   } catch (error) {
     console.error("Evidence extraction route error", error);
