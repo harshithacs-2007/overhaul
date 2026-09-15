@@ -1,6 +1,6 @@
 export interface PortfolioOption { id: string; name: string; capexINR: number; annualSavingINR: number; annualEnergySavingKWh?: number; carbonSavingKgPerYear?: number; downtimeHours?: number; priorityWeight?: number; }
 export interface PortfolioConstraints { budgetINR?: number; maxDowntimeHours?: number; minAnnualSavingINR?: number; carbonTargetKgPerYear?: number; maxActions?: number; }
-export interface PortfolioResult { selected: PortfolioOption[]; rejected: Array<{ option: PortfolioOption; reason: string }>; totalCapexINR: number; totalAnnualSavingINR: number; totalAnnualEnergySavingKWh: number; totalCarbonSavingKgPerYear: number; totalDowntimeHours: number; score: number; }
+export interface PortfolioResult { selected: PortfolioOption[]; rejected: Array<{ option: PortfolioOption; reason: string }>; totalCapexINR: number; totalAnnualSavingINR: number; totalAnnualEnergySavingKWh: number; totalCarbonSavingKgPerYear: number; totalDowntimeHours: number; score: number; targetStatus: "met" | "shortfall" | "not-set"; targetShortfall: string[]; }
 const n=(v:number|undefined)=>typeof v==='number'&&Number.isFinite(v)?v:0;
 const s=(o:PortfolioOption)=>((Math.max(n(o.annualSavingINR),0)+Math.max(n(o.carbonSavingKgPerYear),0)*0.2)/Math.max(n(o.capexINR),1))*Math.max(n(o.priorityWeight),1);
 export function optimizeRetrofitPortfolio(options:PortfolioOption[], c:PortfolioConstraints={}):PortfolioResult {
@@ -11,5 +11,9 @@ export function optimizeRetrofitPortfolio(options:PortfolioOption[], c:Portfolio
   if(c.maxDowntimeHours!=null&&downtime+od>c.maxDowntimeHours){rejected.push({option:o,reason:'downtime constraint'});continue;}
   selected.push(o);capex+=oc;savings+=n(o.annualSavingINR);energy+=n(o.annualEnergySavingKWh);carbon+=n(o.carbonSavingKgPerYear);downtime+=od;
  }
- return {selected,rejected,totalCapexINR:capex,totalAnnualSavingINR:savings,totalAnnualEnergySavingKWh:energy,totalCarbonSavingKgPerYear:carbon,totalDowntimeHours:downtime,score:selected.reduce((a,o)=>a+s(o),0)};
+ const shortfall:string[]=[];
+ if(c.minAnnualSavingINR!=null&&savings<c.minAnnualSavingINR) shortfall.push('Annual saving target not met.');
+ if(c.carbonTargetKgPerYear!=null&&carbon<c.carbonTargetKgPerYear) shortfall.push('Carbon target not met.');
+ const hasTargets=c.minAnnualSavingINR!=null||c.carbonTargetKgPerYear!=null;
+ return {selected,rejected,totalCapexINR:capex,totalAnnualSavingINR:savings,totalAnnualEnergySavingKWh:energy,totalCarbonSavingKgPerYear:carbon,totalDowntimeHours:downtime,score:selected.reduce((a,o)=>a+s(o),0),targetStatus:!hasTargets?'not-set':shortfall.length?'shortfall':'met',targetShortfall:shortfall};
 }
