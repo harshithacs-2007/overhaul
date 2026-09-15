@@ -31,6 +31,33 @@ function writeStored(items: StoredExtraction[]) {
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(items.slice(-MAX_STORED)));
 }
 
+function patchAssessmentStorage() {
+  const extractions = readStored();
+  if (!extractions.length) return;
+
+  try {
+    const raw = sessionStorage.getItem("overhaul:assessment");
+    if (raw) {
+      const assessment = JSON.parse(raw) as Record<string, unknown>;
+      sessionStorage.setItem(
+        "overhaul:assessment",
+        JSON.stringify({ ...assessment, evidenceExtractions: extractions }),
+      );
+    }
+
+    const resultRaw = sessionStorage.getItem("overhaul:result");
+    if (resultRaw) {
+      const result = JSON.parse(resultRaw) as Record<string, unknown>;
+      sessionStorage.setItem(
+        "overhaul:result",
+        JSON.stringify({ ...result, evidenceExtractions: extractions }),
+      );
+    }
+  } catch {
+    // Keep perception results available even if a host-page payload is malformed.
+  }
+}
+
 export function EvidencePerceptionBridge() {
   const [status, setStatus] = useState<PerceptionStatus>("idle");
   const [pending, setPending] = useState(0);
@@ -38,6 +65,24 @@ export function EvidencePerceptionBridge() {
   const active = useRef(new Set<string>());
 
   useEffect(() => {
+    const originalSetItem = sessionStorage.setItem.bind(sessionStorage);
+    const patchedSetItem = (key: string, value: string) => {
+      if (key === "overhaul:assessment" || key === "overhaul:result") {
+        try {
+          const parsed = JSON.parse(value) as Record<string, unknown>;
+          originalSetItem(
+            key,
+            JSON.stringify({ ...parsed, evidenceExtractions: readStored() }),
+          );
+          return;
+        } catch {
+          // Fall back to the original payload rather than breaking navigation.
+        }
+      }
+      originalSetItem(key, value);
+    };
+
+    sessionStorage.setItem = patchedSetItem;
     setReadyCount(readStored().length);
 
     const onChange = async (event: Event) => {
@@ -78,6 +123,7 @@ export function EvidencePerceptionBridge() {
           ];
           writeStored(next);
           setReadyCount(next.length);
+          patchAssessmentStorage();
           setStatus("ready");
         } catch (error) {
           console.error("OVERHAUL evidence perception failed", error);
@@ -92,7 +138,10 @@ export function EvidencePerceptionBridge() {
     };
 
     document.addEventListener("change", onChange, true);
-    return () => document.removeEventListener("change", onChange, true);
+    return () => {
+      document.removeEventListener("change", onChange, true);
+      sessionStorage.setItem = originalSetItem;
+    };
   }, []);
 
   if (status === "idle" && !readyCount) return null;
