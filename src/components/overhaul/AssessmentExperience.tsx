@@ -5,6 +5,7 @@ import AssetTwinViewport from "./AssetTwinViewport";
 import LiveTwinStudio from "./LiveTwinStudio";
 import RetrofitPathfinder from "./RetrofitPathfinder";
 import RetrofitStressLab from "./RetrofitStressLab";
+import DatasetIntelligencePanel from "./DatasetIntelligencePanel";
 import DigitalTwinConsole from "./DigitalTwinConsole";
 import DecisionProvenancePanel from "./DecisionProvenancePanel";
 import { useEffect, useMemo, useState } from "react";
@@ -21,6 +22,7 @@ type Assessment = {
 type Extraction = {
   evidenceId?: string;
   observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number; sourceText?: string }>;
+  warnings?: string[];
   model?: string;
   sourceKind?: string;
   sourceName?: string;
@@ -28,7 +30,7 @@ type Extraction = {
 };
 type Values = Record<string, number | string | null>;
 type RoomScan = { scope?: Scope; coveragePercent?: number; completed?: boolean; sectors?: Array<{ id: string; sector: number; result?: unknown }> };
-type ClimateContext = { location?: string; temperature?: number; humidity?: number; min?: number; max?: number; rain?: number } | null;
+type ClimateContext = { location?: string; temperature?: number; humidity?: number; min?: number; max?: number; rain?: number; source?: string; fetchedAt?: string } | null;
 
 function readJson<T>(key: string, fallback: T): T {
   try { return JSON.parse(sessionStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; }
@@ -137,6 +139,7 @@ export default function AssessmentExperience() {
     </div>
 
     <div className="mx-auto max-w-[1600px] space-y-5 px-4 pb-12 sm:px-7 lg:px-10">
+      <DatasetIntelligencePanel extracts={extracts} />
       <RetrofitPathfinder scope={scope} values={values} />
       <RetrofitStressLab scope={scope} values={values} climate={climate} />
       <LiveTwinStudio scope={scope} title={title} values={values} />
