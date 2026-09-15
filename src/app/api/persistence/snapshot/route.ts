@@ -17,6 +17,21 @@ function finiteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function sanitizeClimate(input: unknown) {
+  if (!input || typeof input !== "object") return null;
+  const climate = input as Record<string, unknown>;
+  return {
+    location: text(climate.location),
+    temperature: finiteNumber(climate.temperature),
+    humidity: finiteNumber(climate.humidity),
+    min: finiteNumber(climate.min),
+    max: finiteNumber(climate.max),
+    rain: finiteNumber(climate.rain),
+    source: text(climate.source, "Open-Meteo current/forecast context"),
+    fetchedAt: text(climate.fetchedAt),
+  };
+}
+
 function sanitizeRoomScan(input: unknown) {
   if (!input || typeof input !== "object") return null;
   const scan = input as Record<string, unknown>;
@@ -66,6 +81,7 @@ export async function POST(request: Request) {
     const extractions = Array.isArray(body?.extractions) ? body.extractions : [];
     const supplemental = body?.supplemental && typeof body.supplemental === "object" ? body.supplemental : {};
     const roomScan = sanitizeRoomScan(body?.roomScan);
+    const climate = sanitizeClimate(body?.climate);
 
     const scope = text(assessment?.assessmentSubject, "building");
     if (!SCOPES.has(scope)) {
@@ -84,6 +100,7 @@ export async function POST(request: Request) {
           assessment,
           supplemental,
           roomScan,
+          climate,
           persistedAt: new Date().toISOString(),
         },
       })
@@ -104,9 +121,9 @@ export async function POST(request: Request) {
         project_id: project.id,
         asset_type: scope,
         name: projectName,
-        model: { scope, industry: assessment?.industry, goal: assessment?.assessmentGoal, supplemental, roomScanCoveragePercent: roomScan?.coveragePercent ?? null },
+        model: { scope, industry: assessment?.industry, goal: assessment?.assessmentGoal, supplemental, roomScanCoveragePercent: roomScan?.coveragePercent ?? null, climate },
         geometry: dimensions,
-        provenance: { source: "assessment-intake", evidenceCount: Array.isArray(assessment?.evidence) ? assessment.evidence.length : 0, roomScanCompleted: roomScan?.completed ?? false },
+        provenance: { source: "assessment-intake", evidenceCount: Array.isArray(assessment?.evidence) ? assessment.evidence.length : 0, roomScanCompleted: roomScan?.completed ?? false, climateContext: climate ? "regional-weather-context" : "not-resolved" },
       })
       .select("id")
       .single();
