@@ -45,3 +45,21 @@ next-env.d.ts
 /data/raw/
 /data/processed/
 /data/tmp/
+
+# dataset binaries must never be committed
+*.parquet
+*.nc
+*.hdf5
+*.h5
+*.7z
+*.zip
+*.tar
+*.tar.gz
+*.csv
+*.xlsx
+*.xls
+*.pdf
+*.pt
+*.pth
+*.onnx
+*.safetensors
