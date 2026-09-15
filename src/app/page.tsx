@@ -1,5 +1,5 @@
-import { Wizard } from "@/components/wizard/Wizard";
+import OverhaulIntake from "@/components/overhaul/OverhaulIntake";
 
 export default function HomePage() {
-  return <Wizard />;
+  return <OverhaulIntake />;
 }
