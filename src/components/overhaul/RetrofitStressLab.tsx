@@ -37,7 +37,7 @@ export default function RetrofitStressLab({ scope, values, climate = null }: { s
 
     const proposedUA = envelopeArea / proposedR;
     const deltas = [-2, 0, 2, 4, 6];
-    const generated = deltas.map((delta) => {
+    const generated: Row[] = deltas.map((delta) => {
       const boundary = outdoor + delta;
       const baseline = { floorAreaM2: area, envelopeUA_W_per_K: ua, ventilationM3s: n(values, "ventilation_m3s") ?? 0, outdoorTempC: boundary, indoorTempC: indoor, solarGainKW: n(values, "solar_gain_kw") ?? 0, internalGainKW: n(values, "internal_gain_kw") ?? 0, hvacCapacityKW: capacity, hvacCOP: cop, annualCoolingHours: hours, electricityRateINRPerKWh: rate ?? 0 };
       const current = simulatePhysicsScenario({ subject: scope === "facility" ? "facility" : "building", baseline });
