@@ -1,0 +1,25 @@
+name: Restore report
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    if: contains(github.event.head_commit.message, 'chore: restore report from known good revision')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore known-good report
+        run: |
+          git checkout fbe68b861d5b154ab8a62931e80ed09da8b3fe31 -- src/components/overhaul/FinalReportView.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/overhaul/FinalReportView.tsx
+          git commit -m "fix: restore full final engineering report" || exit 0
+          git push origin HEAD:master
