@@ -1,5 +1,5 @@
-import UniversalDecisionWorkspaceV2 from "@/components/overhaul/UniversalDecisionWorkspaceV2";
+import AssessmentExperience from "@/components/overhaul/AssessmentExperience";
 
 export default function AssessmentPage() {
-  return <UniversalDecisionWorkspaceV2 />;
+  return <AssessmentExperience />;
 }
