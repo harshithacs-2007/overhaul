@@ -8,6 +8,7 @@ import RetrofitPathfinder from "./RetrofitPathfinder";
 import RetrofitStressLab from "./RetrofitStressLab";
 import DatasetIntelligencePanel from "./DatasetIntelligencePanel";
 import DatasetPhysicsBridgePanel from "./DatasetPhysicsBridgePanel";
+import RegionalConstraintPanel from "./RegionalConstraintPanel";
 import ModelEvidencePanel from "./ModelEvidencePanel";
 import DigitalTwinConsole from "./DigitalTwinConsole";
 import DecisionProvenancePanel from "./DecisionProvenancePanel";
@@ -98,6 +99,7 @@ export default function AssessmentExperience() {
     <div className="mx-auto max-w-[1600px] space-y-5 px-4 pb-12 sm:px-7 lg:px-10">
       <DatasetIntelligencePanel extracts={extracts}/>
       <DatasetPhysicsBridgePanel extracts={extracts} values={values}/>
+      <RegionalConstraintPanel climate={climate} values={values}/>
       <ModelEvidencePanel />
       <RetrofitPathfinder scope={scope} values={values}/>
       {scope === "equipment" ? <MachineRetrofitMatrix assetClass={assessment?.assetClass} values={values}/> : null}
