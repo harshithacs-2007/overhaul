@@ -4,6 +4,7 @@ import UniversalDecisionWorkspaceV2 from "./UniversalDecisionWorkspaceV2";
 import AssetTwinViewport from "./AssetTwinViewport";
 import LiveTwinStudio from "./LiveTwinStudio";
 import RetrofitPathfinder from "./RetrofitPathfinder";
+import RetrofitStressLab from "./RetrofitStressLab";
 import DigitalTwinConsole from "./DigitalTwinConsole";
 import DecisionProvenancePanel from "./DecisionProvenancePanel";
 import { useEffect, useMemo, useState } from "react";
@@ -132,6 +133,7 @@ export default function AssessmentExperience() {
 
     <div className="mx-auto max-w-[1600px] space-y-5 px-4 pb-12 sm:px-7 lg:px-10">
       <RetrofitPathfinder scope={scope} values={values} />
+      <RetrofitStressLab scope={scope} values={values} />
       <LiveTwinStudio scope={scope} title={title} values={values} />
       <UniversalDecisionWorkspaceV2 />
       <AssetTwinViewport scope={scope} title={title} assetClass={assetClass} evidenceIds={evidenceIds} values={values} />
