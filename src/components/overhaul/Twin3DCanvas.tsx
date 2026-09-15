@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { Group, Material, Mesh, MeshBasicMaterial, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
 
 type Scope = "building" | "facility" | "equipment";
 
@@ -48,9 +49,9 @@ export default function Twin3DCanvas(props: Props) {
         host.appendChild(fallback);
       };
 
-      let scene: THREE.Scene;
-      let camera: THREE.PerspectiveCamera;
-      let renderer: THREE.WebGLRenderer;
+      let scene: Scene;
+      let camera: PerspectiveCamera;
+      let renderer: WebGLRenderer;
       try {
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x050808);
@@ -92,7 +93,7 @@ export default function Twin3DCanvas(props: Props) {
       const wire = new THREE.MeshBasicMaterial({ color: 0xe4b860, wireframe: true, transparent: true, opacity: 0.25 });
       const ghost = new THREE.MeshBasicMaterial({ color: 0x2ce0ca, wireframe: true, transparent: true, opacity: 0.12 });
 
-      const box = (w: number, h: number, d: number, mat: THREE.Material, group = root, x = 0, y = 0, z = 0) => {
+      const box = (w: number, h: number, d: number, mat: Material, group = root, x = 0, y = 0, z = 0) => {
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         mesh.position.set(x, y + h / 2, z);
         mesh.castShadow = true;
@@ -100,7 +101,7 @@ export default function Twin3DCanvas(props: Props) {
         group.add(mesh);
         return mesh;
       };
-      const ring = (rx: number, ry: number, rz: number, mat: THREE.Material, y: number) => {
+      const ring = (rx: number, ry: number, rz: number, mat: Material, y: number) => {
         const mesh = new THREE.Mesh(new THREE.TorusGeometry(1, 0.015, 8, 64), mat);
         mesh.scale.set(rx, rz, ry);
         mesh.rotation.x = Math.PI / 2;
@@ -112,17 +113,16 @@ export default function Twin3DCanvas(props: Props) {
       const width = pos(props.widthM) ?? (props.scope === "equipment" ? 2.4 : 10);
       const depth = pos(props.depthM) ?? (props.scope === "equipment" ? 1.5 : 8);
       const height = pos(props.heightM) ?? (props.scope === "equipment" ? 1.8 : 3.2);
-      const stateScale = props.mode === "retrofit" ? 1.035 : 1;
 
-      let flow: THREE.Group | undefined;
-      let rotor: THREE.Group | undefined;
-      let currentGhost: THREE.Object3D | undefined;
-      let proposedGhost: THREE.Object3D | undefined;
+      let flow: Group | undefined;
+      let rotor: Group | undefined;
+      let currentGhost: Object3D | undefined;
+      let proposedGhost: Object3D | undefined;
 
       if (props.scope === "equipment") {
-        const w = Math.min(width * stateScale, 6);
-        const d = Math.min(depth * stateScale, 4);
-        const h = Math.min(height * stateScale, 4);
+        const w = Math.min(width, 6);
+        const d = Math.min(depth, 4);
+        const h = Math.min(height, 4);
         box(w, h, d, dark);
         box(w * 0.72, h * 0.46, d * 0.12, glass, root, 0, h * 0.27, d * 0.55);
         const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(w * 0.13, 0.18), Math.max(w * 0.13, 0.18), d * 0.5, 32), amber);
@@ -145,9 +145,9 @@ export default function Twin3DCanvas(props: Props) {
           proposedGhost = box(w * 1.07, h * 1.07, d * 1.07, wire, field, 0, 0.16, 0);
         }
       } else {
-        const w = Math.min(width * stateScale, 15);
-        const d = Math.min(depth * stateScale, 12);
-        const h = Math.min(height * stateScale, 6);
+        const w = Math.min(width, 15);
+        const d = Math.min(depth, 12);
+        const h = Math.min(height, 6);
         box(w, 0.12, d, glass);
         box(w, 0.08, 0.14, teal, root, 0, h, -d / 2);
         box(0.08, h, d, glass, root, -w / 2, 0, 0);
@@ -184,7 +184,7 @@ export default function Twin3DCanvas(props: Props) {
       const r3 = ring(Math.max(width * 0.38, 2.2) * fieldScale, Math.max(depth * 0.38, 1.9) * fieldScale, 1.2, wire, Math.max(height * 0.94, 0.9));
       [r1, r2, r3].forEach((r, i) => { r.rotation.z = i * 0.8; });
 
-      const target = new THREE.Vector3(0, props.scope === "equipment" ? height * 0.52 : height * 0.5, 0);
+      const target: Vector3 = new THREE.Vector3(0, props.scope === "equipment" ? height * 0.52 : height * 0.5, 0);
       let yaw = 0.72;
       let pitch = 0.95;
       let radius = props.scope === "equipment" ? 7 : 13;
@@ -247,8 +247,8 @@ export default function Twin3DCanvas(props: Props) {
         field.scale.setScalar(pulse);
         if (currentGhost && proposedGhost) {
           const contrast = saving == null ? 0.12 : Math.min(0.34, 0.08 + Math.abs(saving) / 100);
-          (currentGhost.material as THREE.MeshBasicMaterial).opacity = props.mode === "observed" ? 0.1 : contrast;
-          (proposedGhost.material as THREE.MeshBasicMaterial).opacity = props.mode === "retrofit" ? 0.18 : 0.07;
+          (currentGhost.material as MeshBasicMaterial).opacity = props.mode === "observed" ? 0.1 : contrast;
+          (proposedGhost.material as MeshBasicMaterial).opacity = props.mode === "retrofit" ? 0.18 : 0.07;
           proposedGhost.scale.setScalar(1 + (Math.abs(saving ?? 0) / 100) * 0.08);
         }
         renderer.render(scene, camera);
@@ -264,10 +264,10 @@ export default function Twin3DCanvas(props: Props) {
         renderer.domElement.removeEventListener("pointerup", onUp);
         renderer.domElement.removeEventListener("pointercancel", onUp);
         renderer.domElement.removeEventListener("wheel", onWheel);
-        scene.traverse((child) => {
-          const mesh = child as THREE.Mesh;
+        scene.traverse((child: Object3D) => {
+          const mesh = child as Mesh;
           mesh.geometry?.dispose?.();
-          const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
+          const material = mesh.material as Material | Material[] | undefined;
           if (Array.isArray(material)) material.forEach((m) => m.dispose());
           else material?.dispose?.();
         });
