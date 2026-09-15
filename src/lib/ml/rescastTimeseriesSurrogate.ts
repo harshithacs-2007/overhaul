@@ -23,6 +23,8 @@ export type RescastTimeseriesArtifact = {
   note: string;
 };
 
+type ModelReadyStatus = { available: true; screeningOnly: true; beatsMeanBaseline: boolean; r2: number; mae: number; baselineMae: number; sampleRows: number; trainRows: number; validationRows: number; testRows: number; trainingDataset: string; splitMethod: string };
+type ModelMissingStatus = { available: false; screeningOnly: true };
 let model: RescastTimeseriesArtifact | null = null;
 
 export function loadRescastTimeseriesModel(value: unknown): boolean {
@@ -38,23 +40,9 @@ export function loadRescastTimeseriesModel(value: unknown): boolean {
   return true;
 }
 
-export function rescastTimeseriesStatus() {
+export function rescastTimeseriesStatus(): ModelReadyStatus | ModelMissingStatus {
   if (!model) return { available: false, screeningOnly: true };
-  const beatsMean = model.testMetrics.mae < model.meanBaselineTestMetrics.mae;
-  return {
-    available: true,
-    screeningOnly: true,
-    beatsMeanBaseline: beatsMean,
-    r2: model.testMetrics.r2,
-    mae: model.testMetrics.mae,
-    baselineMae: model.meanBaselineTestMetrics.mae,
-    sampleRows: model.sampleRows,
-    trainRows: model.trainRows,
-    validationRows: model.validationRows,
-    testRows: model.testRows,
-    trainingDataset: model.trainingDataset,
-    splitMethod: model.splitMethod,
-  };
+  return { available: true, screeningOnly: true, beatsMeanBaseline: model.testMetrics.mae < model.meanBaselineTestMetrics.mae, r2: model.testMetrics.r2, mae: model.testMetrics.mae, baselineMae: model.meanBaselineTestMetrics.mae, sampleRows: model.sampleRows, trainRows: model.trainRows, validationRows: model.validationRows, testRows: model.testRows, trainingDataset: model.trainingDataset, splitMethod: model.splitMethod };
 }
 
 export function predictRescastTimeseries(features: Record<string, number>) {
@@ -62,21 +50,9 @@ export function predictRescastTimeseries(features: Record<string, number>) {
   let missingFeatures = 0;
   const vector = model.featureNames.map((name, index) => {
     const raw = Number(features[name]);
-    if (!Number.isFinite(raw)) {
-      missingFeatures += 1;
-      return 0;
-    }
+    if (!Number.isFinite(raw)) { missingFeatures += 1; return 0; }
     return (raw - model.featureMean[index]) / (model.featureScale[index] || 1);
   });
   const value = model.intercept + model.coefficients.reduce((sum, coefficient, index) => sum + coefficient * vector[index], 0);
-  return {
-    value,
-    target: model.target,
-    targetUnit: model.targetUnit,
-    missingFeatures,
-    screeningOnly: true,
-    testR2: model.testMetrics.r2,
-    trainingDataset: model.trainingDataset,
-    authority: model.engineeringAuthority,
-  };
+  return { value, target: model.target, targetUnit: model.targetUnit, missingFeatures, screeningOnly: true, testR2: model.testMetrics.r2, trainingDataset: model.trainingDataset, authority: model.engineeringAuthority };
 }
