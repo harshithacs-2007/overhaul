@@ -1,94 +1,68 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { Group, Material, Mesh, MeshBasicMaterial, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
+import type { Material, Mesh, MeshBasicMaterial, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
+import type { TwinModel } from "@/lib/engineering/twinModel";
 
 type Scope = "building" | "facility" | "equipment";
-type Props = { scope: Scope; mode: "observed" | "retrofit"; widthM: number | null; depthM: number | null; heightM: number | null; capacityKW: number | null; loadKW: number | null; powerKW: number | null; currentLoadKW: number | null; proposedLoadKW: number | null; currentPowerKW: number | null; proposedPowerKW: number | null; currentUtilization: number | null; proposedUtilization: number | null; savingPercent: number | null; title: string };
-const pos = (v: number | null) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+type Props = { scope: Scope; mode: "observed" | "retrofit"; model: TwinModel | null; widthM: number | null; depthM: number | null; heightM: number | null; capacityKW: number | null; loadKW: number | null; powerKW: number | null; currentLoadKW: number | null; proposedLoadKW: number | null; currentPowerKW: number | null; proposedPowerKW: number | null; currentUtilization: number | null; proposedUtilization: number | null; savingPercent: number | null; title: string };
+const pos = (v: number | null | undefined) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 export default function Twin3DCanvas(props: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    let dead = false;
-    let frame = 0;
-    let dispose: (() => void) | undefined;
+    let dead = false; let frame = 0; let dispose: (() => void) | undefined;
     const mount = async () => {
-      const THREE = await import("three");
-      if (dead || !hostRef.current) return;
-      const host = hostRef.current;
-      host.replaceChildren();
-      const showFallback = (message: string) => {
-        host.replaceChildren();
-        const fallback = document.createElement("div");
-        fallback.className = "grid h-full min-h-[520px] place-items-center border border-steel/10 bg-[#050808] p-8 text-center";
-        fallback.innerHTML = `<div><div style="font-family:monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:#8a9ba8">3D viewport</div><div style="margin-top:8px;color:#eef5f3;font-size:14px">${message}</div><div style="margin-top:8px;color:#8a9ba8;font-size:9px;line-height:1.5">The engineering calculations remain available; this only removes the interactive renderer.</div></div>`;
-        host.appendChild(fallback);
-      };
-      let scene: Scene;
-      let camera: PerspectiveCamera;
-      let renderer: WebGLRenderer;
-      try {
-        scene = new THREE.Scene(); scene.background = new THREE.Color(0x050808); scene.fog = new THREE.Fog(0x050808, 18, 36);
-        camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
-      } catch { showFallback("Interactive 3D is unavailable in this browser."); return; }
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.shadowMap.enabled = true; host.appendChild(renderer.domElement);
-      scene.add(new THREE.HemisphereLight(0xd7fff8, 0x0a1111, 1.9));
-      const key = new THREE.DirectionalLight(0xffffff, 3); key.position.set(7, 10, 6); key.castShadow = true; scene.add(key);
-      const rim = new THREE.PointLight(0x24dfca, 10, 26); rim.position.set(-5, 4, -5); scene.add(rim);
-      const amberRim = new THREE.PointLight(0xe4b860, 5, 20); amberRim.position.set(5, 3, 4); scene.add(amberRim);
-      scene.add(new THREE.GridHelper(24, 24, 0x164b46, 0x0b2523));
-      const root = new THREE.Group(); scene.add(root); const field = new THREE.Group(); scene.add(field);
-      const teal = new THREE.MeshStandardMaterial({ color: 0x2ce0ca, metalness: 0.55, roughness: 0.3 });
-      const dark = new THREE.MeshStandardMaterial({ color: 0x103f3b, metalness: 0.74, roughness: 0.36 });
-      const glass = new THREE.MeshStandardMaterial({ color: 0xc7dbd9, metalness: 0.1, roughness: 0.42, transparent: true, opacity: 0.24 });
-      const amber = new THREE.MeshStandardMaterial({ color: 0xe4b860, metalness: 0.45, roughness: 0.35 });
-      const wire = new THREE.MeshBasicMaterial({ color: 0xe4b860, wireframe: true, transparent: true, opacity: 0.25 });
-      const ghost = new THREE.MeshBasicMaterial({ color: 0x2ce0ca, wireframe: true, transparent: true, opacity: 0.12 });
-      const box = (w: number, h: number, d: number, mat: Material, group = root, x = 0, y = 0, z = 0) => { const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); mesh.position.set(x, y + h / 2, z); mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); return mesh; };
-      const ring = (rx: number, ry: number, rz: number, mat: Material, y: number) => { const mesh = new THREE.Mesh(new THREE.TorusGeometry(1, 0.015, 8, 64), mat); mesh.scale.set(rx, rz, ry); mesh.rotation.x = Math.PI / 2; mesh.position.y = y; field.add(mesh); return mesh; };
-      const width = pos(props.widthM) ?? (props.scope === "equipment" ? 2.4 : 10), depth = pos(props.depthM) ?? (props.scope === "equipment" ? 1.5 : 8), height = pos(props.heightM) ?? (props.scope === "equipment" ? 1.8 : 3.2);
-      let flow: Group | undefined; let rotor: Group | undefined; let currentGhost: Mesh | undefined; let proposedGhost: Mesh | undefined;
-      if (props.scope === "equipment") {
-        const w = Math.min(width, 6), d = Math.min(depth, 4), h = Math.min(height, 4);
-        box(w, h, d, dark); box(w * 0.72, h * 0.46, d * 0.12, glass, root, 0, h * 0.27, d * 0.55);
-        const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(w * 0.13, 0.18), Math.max(w * 0.13, 0.18), d * 0.5, 32), amber); cylinder.rotation.x = Math.PI / 2; cylinder.position.set(-w * 0.12, h * 0.72, 0); root.add(cylinder);
-        rotor = new THREE.Group(); rotor.position.set(w * 0.18, h * 0.57, 0); root.add(rotor);
-        for (let i = 0; i < 6; i += 1) { const blade = new THREE.Mesh(new THREE.BoxGeometry(w * 0.11, 0.035, d * 0.42), teal); const a = (i / 6) * Math.PI * 2; blade.rotation.y = a; blade.position.set(Math.cos(a) * w * 0.16, 0, Math.sin(a) * d * 0.16); rotor.add(blade); }
-        box(w * 1.08, 0.12, d * 1.08, glass);
-        if (props.currentPowerKW != null && props.proposedPowerKW != null) { currentGhost = box(w * 1.03, h * 1.03, d * 1.03, ghost, field, 0, 0.16, 0); proposedGhost = box(w * 1.07, h * 1.07, d * 1.07, wire, field, 0, 0.16, 0); }
+      const THREE = await import("three"); if (dead || !hostRef.current) return; const host = hostRef.current; host.replaceChildren();
+      const fallback = (message: string) => { host.replaceChildren(); const box = document.createElement("div"); box.className = "grid h-full min-h-[560px] place-items-center border border-steel/10 bg-[#050808] p-8 text-center"; box.textContent = message; host.appendChild(box); };
+      let scene: Scene, camera: PerspectiveCamera, renderer: WebGLRenderer;
+      try { scene = new THREE.Scene(); scene.background = new THREE.Color(0x050808); scene.fog = new THREE.Fog(0x050808, 30, 70); camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200); renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" }); } catch { fallback("Interactive 3D is unavailable in this browser."); return; }
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.shadowMap.enabled = true; host.appendChild(renderer.domElement);
+      scene.add(new THREE.HemisphereLight(0xd7fff8, 0x0a1111, 1.8)); const key = new THREE.DirectionalLight(0xffffff, 2.8); key.position.set(10, 16, 8); key.castShadow = true; scene.add(key); const rim = new THREE.PointLight(0x24dfca, 9, 38); rim.position.set(-8, 7, -8); scene.add(rim); const amberRim = new THREE.PointLight(0xe4b860, 5, 30); amberRim.position.set(8, 5, 6); scene.add(amberRim);
+      scene.add(new THREE.GridHelper(50, 50, 0x164b46, 0x0b2523));
+      const root = new THREE.Group(); const field = new THREE.Group(); scene.add(root, field);
+      const teal = new THREE.MeshStandardMaterial({ color: 0x2ce0ca, metalness: 0.48, roughness: 0.28 }); const dark = new THREE.MeshStandardMaterial({ color: 0x103f3b, metalness: 0.72, roughness: 0.35 }); const glass = new THREE.MeshStandardMaterial({ color: 0xc7dbd9, metalness: 0.05, roughness: 0.42, transparent: true, opacity: 0.22 }); const amber = new THREE.MeshStandardMaterial({ color: 0xe4b860, metalness: 0.42, roughness: 0.32 }); const roomMat = new THREE.MeshStandardMaterial({ color: 0x123d39, transparent: true, opacity: 0.12, roughness: 0.7 }); const wire = new THREE.MeshBasicMaterial({ color: 0xe4b860, wireframe: true, transparent: true, opacity: 0.25 }); const retrofitWire = new THREE.MeshBasicMaterial({ color: 0x2ce0ca, wireframe: true, transparent: true, opacity: 0.18 });
+      const box = (w: number, h: number, d: number, material: Material, group = root, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(Math.max(w, 0.05), Math.max(h, 0.05), Math.max(d, 0.05)), material); m.position.set(x, y + h / 2, z); m.castShadow = true; m.receiveShadow = true; group.add(m); return m; };
+      const wall = (a: {x:number;y:number}, b: {x:number;y:number}, thickness: number, height: number, material: Material) => { const dx = b.x - a.x, dz = b.y - a.y, len = Math.hypot(dx, dz); const m = box(len, height, thickness, material, root, (a.x + b.x) / 2, 0, (a.y + b.y) / 2); m.rotation.y = Math.atan2(dz, dx); return m; };
+      const ring = (radius: number, y: number, material: Material) => { const m = new THREE.Mesh(new THREE.TorusGeometry(radius, Math.max(radius * 0.008, 0.025), 8, 96), material); m.rotation.x = Math.PI / 2; m.position.y = y; field.add(m); return m; };
+      const overall = props.model?.overall || { widthM: pos(props.widthM) || (props.scope === "equipment" ? 2.4 : 10), depthM: pos(props.depthM) || (props.scope === "equipment" ? 1.5 : 8), heightM: pos(props.heightM) || (props.scope === "equipment" ? 1.8 : 3.2) };
+      const width = overall.widthM, depth = overall.depthM, height = overall.heightM;
+      const fit = Math.max(width, depth, height); let pulses: Mesh[] = [];
+
+      if (props.model && props.scope !== "equipment" && props.model.walls.length) {
+        for (const w of props.model.walls) wall(w.a, w.b, w.thicknessM, Math.min(w.heightM, Math.max(height, 2.5)), w.source === "floorplan" ? glass : dark);
+        for (const room of props.model.rooms) { const floor = box(room.widthM, 0.025, room.depthM, roomMat, root, room.x + room.widthM / 2, 0.02, room.y + room.depthM / 2); floor.userData.roomId = room.id; }
+        for (const opening of props.model.openings) { const marker = new THREE.Mesh(new THREE.BoxGeometry(opening.widthM, 0.05, 0.08), opening.type === "window" ? teal : amber); marker.position.set(opening.x, 0.04, opening.y); root.add(marker); }
       } else {
-        const w = Math.min(width, 15), d = Math.min(depth, 12), h = Math.min(height, 6);
-        box(w, 0.12, d, glass); box(w, 0.08, 0.14, teal, root, 0, h, -d / 2); box(0.08, h, d, glass, root, -w / 2, 0, 0); box(0.08, h, d, glass, root, w / 2, 0, 0); box(w, 0.08, 0.14, glass, root, 0, h, d / 2);
-        box(Math.min(w * 0.17, 2.2), Math.min(h * 0.18, 0.8), Math.min(d * 0.14, 1.35), dark, root, -w * 0.24, h * 0.79, -d * 0.24);
-        box(Math.min(w * 0.12, 1.6), Math.min(h * 0.15, 0.62), Math.min(d * 0.11, 1.05), amber, root, w * 0.23, h * 0.83, -d * 0.23);
-        const duct = new THREE.Mesh(new THREE.CylinderGeometry(Math.min(d * 0.05, 0.24), Math.min(d * 0.05, 0.24), w * 0.44, 24), teal); duct.rotation.z = Math.PI / 2; duct.position.set(0, h * 0.86, 0); root.add(duct);
-        flow = new THREE.Group(); flow.position.set(0, h * 0.52, 0); root.add(flow);
-        for (let i = 0; i < 7; i += 1) { const segment = new THREE.Mesh(new THREE.BoxGeometry(w * 0.18, 0.025, 0.025), teal); segment.position.x = -w * 0.34 + i * w * 0.11; segment.position.z = Math.sin(i * 1.3) * d * 0.08; flow.add(segment); }
-        if (props.currentLoadKW != null && props.proposedLoadKW != null) { currentGhost = box(w, h * 1.005, d, ghost, field, 0, 0.02, 0); proposedGhost = box(w, h * 1.01, d, wire, field, 0, 0.02, 0); }
+        box(width, 0.12, depth, glass); if (props.scope !== "equipment") { box(width, 0.06, 0.12, teal, root, 0, height, -depth / 2); box(0.06, height, depth, glass, root, -width / 2, 0, 0); box(0.06, height, depth, glass, root, width / 2, 0, 0); } else { box(width, height, depth, dark); }
       }
-      const currentUtil = props.currentUtilization ?? (props.capacityKW && props.loadKW ? props.loadKW / props.capacityKW : null), proposedUtil = props.proposedUtilization ?? currentUtil;
-      const util = clamp01((props.mode === "retrofit" ? proposedUtil : currentUtil) ?? 0.35), saving = props.savingPercent == null ? null : Math.max(-100, Math.min(100, props.savingPercent));
-      const fieldScale = 1 + util * 0.55;
-      const r1 = ring(Math.max(width * 0.22, 1.4) * fieldScale, Math.max(depth * 0.22, 1.2) * fieldScale, 1.2, teal, Math.max(height * 0.18, 0.25));
-      const r2 = ring(Math.max(width * 0.3, 1.8) * fieldScale, Math.max(depth * 0.3, 1.6) * fieldScale, 1.2, amber, Math.max(height * 0.58, 0.55));
-      const r3 = ring(Math.max(width * 0.38, 2.2) * fieldScale, Math.max(depth * 0.38, 1.9) * fieldScale, 1.2, wire, Math.max(height * 0.94, 0.9)); [r1, r2, r3].forEach((r, i) => { r.rotation.z = i * 0.8; });
-      const target: Vector3 = new THREE.Vector3(0, props.scope === "equipment" ? height * 0.52 : height * 0.5, 0);
-      let yaw = 0.72, pitch = 0.95, radius = props.scope === "equipment" ? 7 : 13, drag = false, lastX = 0, lastY = 0;
-      const cameraUpdate = () => { const x = Math.sin(pitch) * Math.cos(yaw) * radius, z = Math.sin(pitch) * Math.sin(yaw) * radius, y = Math.cos(pitch) * radius + 2; camera.position.set(x, y, z); camera.lookAt(target); }; cameraUpdate();
-      const onDown = (e: PointerEvent) => { drag = true; lastX = e.clientX; lastY = e.clientY; renderer.domElement.setPointerCapture(e.pointerId); };
-      const onMove = (e: PointerEvent) => { if (!drag) return; yaw -= (e.clientX - lastX) * 0.008; pitch = Math.max(0.48, Math.min(1.34, pitch + (e.clientY - lastY) * 0.005)); lastX = e.clientX; lastY = e.clientY; cameraUpdate(); };
-      const onUp = () => { drag = false; }; const onWheel = (e: WheelEvent) => { e.preventDefault(); radius = Math.max(4, Math.min(24, radius + e.deltaY * 0.012)); cameraUpdate(); };
-      renderer.domElement.addEventListener("pointerdown", onDown); renderer.domElement.addEventListener("pointermove", onMove); renderer.domElement.addEventListener("pointerup", onUp); renderer.domElement.addEventListener("pointercancel", onUp); renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
-      const resize = () => { const rect = host.getBoundingClientRect(); renderer.setSize(Math.max(rect.width, 1), Math.max(rect.height, 1), false); camera.aspect = Math.max(rect.width, 1) / Math.max(rect.height, 1); camera.updateProjectionMatrix(); };
-      const ro = new ResizeObserver(resize); ro.observe(host); resize();
-      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches; const clock = new THREE.Clock();
-      const animate = () => { if (dead) return; const t = clock.getElapsedTime(); if (!reducedMotion) { if (rotor) rotor.rotation.y = t * (0.45 + util * 2.1); if (flow) { flow.position.x = Math.sin(t * 0.9) * 0.08; flow.scale.x = 1 + Math.sin(t * 2.1) * 0.05; } field.rotation.y = t * 0.055; r1.rotation.z += 0.0015; r2.rotation.z -= 0.0011; r3.rotation.z += 0.0008; } field.scale.setScalar(reducedMotion ? 1 : 0.94 + Math.sin(t * 2.4) * (0.025 + util * 0.03)); if (currentGhost && proposedGhost) { const contrast = saving == null ? 0.12 : Math.min(0.34, 0.08 + Math.abs(saving) / 100); (currentGhost.material as MeshBasicMaterial).opacity = props.mode === "observed" ? 0.1 : contrast; (proposedGhost.material as MeshBasicMaterial).opacity = props.mode === "retrofit" ? 0.18 : 0.07; proposedGhost.scale.setScalar(1 + (Math.abs(saving ?? 0) / 100) * 0.08); } renderer.render(scene, camera); frame = requestAnimationFrame(animate); }; animate();
-      dispose = () => { cancelAnimationFrame(frame); ro.disconnect(); renderer.domElement.removeEventListener("pointerdown", onDown); renderer.domElement.removeEventListener("pointermove", onMove); renderer.domElement.removeEventListener("pointerup", onUp); renderer.domElement.removeEventListener("pointercancel", onUp); renderer.domElement.removeEventListener("wheel", onWheel); scene.traverse((child: Object3D) => { const mesh = child as Mesh; mesh.geometry?.dispose?.(); const material = mesh.material as Material | Material[] | undefined; if (Array.isArray(material)) material.forEach((m) => m.dispose()); else material?.dispose?.(); }); renderer.dispose(); host.replaceChildren(); };
+
+      const assets = props.model?.assets || [];
+      if (assets.length) {
+        for (const asset of assets) {
+          const group = new THREE.Group(); group.position.set(asset.x, 0, asset.y); group.rotation.y = THREE.MathUtils.degToRad(asset.rotationDeg); group.userData.assetId = asset.id; root.add(group);
+          const body = box(Math.min(asset.widthM, width * 0.5), Math.min(asset.heightM, height * 1.2), Math.min(asset.depthM, depth * 0.5), asset.source === "photo" ? amber : dark, group, 0, 0, 0); body.scale.set(0.01, 0.01, 0.01); body.userData.assetLabel = asset.label;
+          const accent = box(Math.max(asset.widthM * 0.55, 0.08), Math.max(asset.heightM * 0.08, 0.03), Math.max(asset.depthM * 0.07, 0.03), teal, group, 0, Math.max(asset.heightM * 0.75, 0.2), Math.max(asset.depthM * 0.48, 0.04)); accent.userData.assetLabel = asset.label;
+          group.userData.growBody = body; group.userData.growAccent = accent;
+        }
+      } else if (props.scope === "equipment") {
+        const w = Math.min(width, 6), d = Math.min(depth, 4), h = Math.min(height, 4); box(w, h, d, dark); const rotor = new THREE.Group(); rotor.position.set(w * .16, h * .55, 0); root.add(rotor); for (let i=0;i<6;i+=1) { const blade = new THREE.Mesh(new THREE.BoxGeometry(w*.1,.04,d*.38), teal); blade.rotation.y=(i/6)*Math.PI*2; blade.position.x=Math.cos(blade.rotation.y)*w*.15; blade.position.z=Math.sin(blade.rotation.y)*d*.15; rotor.add(blade); } root.userData.rotor = rotor;
+      }
+      if (props.scope !== "equipment" && !props.model) { box(Math.min(width*.14,1.7), Math.min(height*.16,.7), Math.min(depth*.12,1.2), dark, root, -width*.24, height*.78, -depth*.22); box(Math.min(width*.11,1.4), Math.min(height*.14,.6), Math.min(depth*.1,1.0), amber, root, width*.23, height*.82, -depth*.22); }
+
+      const currentUtil = props.currentUtilization ?? (props.capacityKW && props.loadKW ? props.loadKW / props.capacityKW : null); const proposedUtil = props.proposedUtilization ?? currentUtil; const util = clamp01((props.mode === "retrofit" ? proposedUtil : currentUtil) ?? .35); const saving = props.savingPercent == null ? null : Math.max(-100, Math.min(100, props.savingPercent)); const baseRadius = Math.max(fit * .65, 2.2); pulses = [ring(baseRadius * (0.72 + util*.2), Math.max(height*.08,.16), teal), ring(baseRadius * (0.98 + util*.28), Math.max(height*.48,.45), amber), ring(baseRadius * (1.25 + util*.36), Math.max(height*.88,.8), wire)];
+      const retrofitGroup = new THREE.Group(); scene.add(retrofitGroup); if (props.mode === "retrofit" && props.currentPowerKW != null && props.proposedPowerKW != null) { const scale = saving == null ? 1 : 1 + Math.min(.16, Math.abs(saving)/100*.16); const shell = box(width*scale, Math.min(height*scale, height*1.25), depth*scale, retrofitWire, retrofitGroup, 0, 0.04, 0); shell.position.y = Math.min(height*.12, .4); }
+
+      const target: Vector3 = new THREE.Vector3(width/2, Math.max(height*.45,.8), depth/2); let yaw=0.72, pitch=1.0, radius=Math.max(fit*1.7, 8), dragging=false,lastX=0,lastY=0;
+      const updateCamera=()=>{const x=target.x+Math.sin(pitch)*Math.cos(yaw)*radius,z=target.z+Math.sin(pitch)*Math.sin(yaw)*radius,y=target.y+Math.cos(pitch)*radius;camera.position.set(x,y,z);camera.lookAt(target);}; updateCamera();
+      const down=(e:PointerEvent)=>{dragging=true;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId)}; const move=(e:PointerEvent)=>{if(!dragging)return;yaw-=(e.clientX-lastX)*.008;pitch=Math.max(.45,Math.min(1.42,pitch+(e.clientY-lastY)*.005));lastX=e.clientX;lastY=e.clientY;updateCamera()}; const up=()=>{dragging=false}; const wheel=(e:WheelEvent)=>{e.preventDefault();radius=Math.max(Math.max(fit*.9,4),Math.min(80,radius+e.deltaY*.015));updateCamera()};
+      renderer.domElement.addEventListener("pointerdown",down);renderer.domElement.addEventListener("pointermove",move);renderer.domElement.addEventListener("pointerup",up);renderer.domElement.addEventListener("pointercancel",up);renderer.domElement.addEventListener("wheel",wheel,{passive:false});
+      const resize=()=>{const rect=host.getBoundingClientRect();renderer.setSize(Math.max(rect.width,1),Math.max(rect.height,1),false);camera.aspect=Math.max(rect.width,1)/Math.max(rect.height,1);camera.updateProjectionMatrix()}; const ro=new ResizeObserver(resize);ro.observe(host);resize();
+      const reduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;const clock=new THREE.Clock();const animate=()=>{if(dead)return;const t=clock.getElapsedTime();if(!reduced){const rotor=root.userData.rotor as THREE.Group|undefined;if(rotor)rotor.rotation.y=t*(.6+util*2);fieldPulse(pulses,t);root.traverse((child:Object3D)=>{const group=child as Object3D&{userData:Record<string,unknown>};const body=group.userData.growBody as Mesh|undefined;if(body)body.scale.setScalar(Math.min(1,Math.max(.01,(t-.15)*1.2)));});}renderer.render(scene,camera);frame=requestAnimationFrame(animate)}; const fieldPulse=(rings:Mesh[],t:number)=>rings.forEach((r,i)=>{r.scale.setScalar(.96+Math.sin(t*(1.1+i*.2)+i)*.035);r.rotation.z=t*(i%2?.04:-.03)});animate();
+      dispose=()=>{cancelAnimationFrame(frame);ro.disconnect();renderer.domElement.removeEventListener("pointerdown",down);renderer.domElement.removeEventListener("pointermove",move);renderer.domElement.removeEventListener("pointerup",up);renderer.domElement.removeEventListener("pointercancel",up);renderer.domElement.removeEventListener("wheel",wheel);scene.traverse((child:Object3D)=>{const mesh=child as Mesh;mesh.geometry?.dispose?.();const material=mesh.material as Material|Material[]|undefined;if(Array.isArray(material))material.forEach((m)=>m.dispose());else material?.dispose?.()});renderer.dispose();host.replaceChildren()};
     };
-    void mount(); return () => { dead = true; dispose?.(); };
-  }, [props.scope, props.mode, props.widthM, props.depthM, props.heightM, props.capacityKW, props.loadKW, props.powerKW, props.currentLoadKW, props.proposedLoadKW, props.currentPowerKW, props.proposedPowerKW, props.currentUtilization, props.proposedUtilization, props.savingPercent]);
-  return <div ref={hostRef} className="h-full min-h-[520px] w-full touch-none" aria-label={`${props.title} interactive 3D engineering twin`} />;
+    void mount(); return ()=>{dead=true;dispose?.()};
+  }, [props.scope,props.mode,props.model,props.widthM,props.depthM,props.heightM,props.capacityKW,props.loadKW,props.powerKW,props.currentLoadKW,props.proposedLoadKW,props.currentPowerKW,props.proposedPowerKW,props.currentUtilization,props.proposedUtilization,props.savingPercent]);
+  return <div ref={hostRef} className="h-full min-h-[560px] w-full touch-none" aria-label={`${props.title} interactive generated 3D twin`}/>;
 }
