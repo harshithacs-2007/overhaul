@@ -16,6 +16,7 @@ export interface BuildingState {
   hvacCapacityKW: number;
   hvacCOP: number;
   annualCoolingHours: number;
+  electricityRateINRPerKWh: number;
 }
 
 export interface EquipmentState {
@@ -64,8 +65,11 @@ function finitePositive(value: number, fallback = 0): number {
 function buildingLoad(state: BuildingState): number {
   const deltaT = Math.max(state.outdoorTempC - state.indoorTempC, 0);
   const envelopeKW = state.envelopeUA_W_per_K * deltaT / 1000;
+  // Sensible ventilation load: m_dot * cp * dT, with air density ≈ 1.2 kg/m³ and cp ≈ 1005 J/(kg·K).
   const ventilationKW = Math.max(state.ventilationM3s, 0) * 1.2 * 1005 * deltaT / 1000;
-  return finitePositive(envelopeKW + ventilationKW + finitePositive(state.solarGainKW) + finitePositive(state.internalGainKW));
+  return finitePositive(
+    envelopeKW + ventilationKW + finitePositive(state.solarGainKW) + finitePositive(state.internalGainKW),
+  );
 }
 
 function buildingElectricalPower(state: BuildingState, loadKW: number): number {
@@ -100,7 +104,8 @@ export function simulatePhysicsScenario(scenario: PhysicsScenario): PhysicsScena
     const proposedPower = buildingElectricalPower(proposed, proposedLoad);
     const baseEnergy = buildingAnnualEnergy(base, baseLoad);
     const proposedEnergy = buildingAnnualEnergy(proposed, proposedLoad);
-    const annualSavingINR = (baseEnergy - proposedEnergy) * 1;
+    const rate = Math.max(finitePositive(proposed.electricityRateINRPerKWh), finitePositive(base.electricityRateINRPerKWh));
+    const annualSavingINR = (baseEnergy - proposedEnergy) * rate;
     const savingPercent = baseEnergy > 0 ? (baseEnergy - proposedEnergy) / baseEnergy * 100 : 0;
     const verdict: string[] = [];
 
@@ -127,7 +132,7 @@ export function simulatePhysicsScenario(scenario: PhysicsScenario): PhysicsScena
         thermalLoadKW: proposedLoad - baseLoad,
         electricalPowerKW: proposedPower - basePower,
         annualEnergyKWh: proposedEnergy - baseEnergy,
-        annualCostINR: annualSavingINR * -1,
+        annualCostINR: -annualSavingINR,
         annualSavingINR,
         savingPercent,
       },
@@ -143,7 +148,8 @@ export function simulatePhysicsScenario(scenario: PhysicsScenario): PhysicsScena
   const proposedPower = equipmentElectricalPower(proposed, proposedLoad);
   const baseEnergy = equipmentAnnualEnergy(base, baseLoad);
   const proposedEnergy = equipmentAnnualEnergy(proposed, proposedLoad);
-  const annualSavingINR = (baseEnergy - proposedEnergy) * Math.max(finitePositive(base.electricityRateINRPerKWh), 0);
+  const rate = Math.max(finitePositive(proposed.electricityRateINRPerKWh), finitePositive(base.electricityRateINRPerKWh));
+  const annualSavingINR = (baseEnergy - proposedEnergy) * rate;
   const savingPercent = baseEnergy > 0 ? (baseEnergy - proposedEnergy) / baseEnergy * 100 : 0;
   const verdict: string[] = [];
 
@@ -169,7 +175,7 @@ export function simulatePhysicsScenario(scenario: PhysicsScenario): PhysicsScena
       thermalLoadKW: proposedLoad - baseLoad,
       electricalPowerKW: proposedPower - basePower,
       annualEnergyKWh: proposedEnergy - baseEnergy,
-      annualCostINR: annualSavingINR * -1,
+      annualCostINR: -annualSavingINR,
       annualSavingINR,
       savingPercent,
     },
