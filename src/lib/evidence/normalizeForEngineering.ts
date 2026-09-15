@@ -11,18 +11,17 @@ export type EngineeringObservation = {
 const FIELD_ALIASES: Record<string, string> = {
   rated_capacity_kw: "capacity_kw",
   hvac_capacity_kw: "capacity_kw",
-  rated_capacity: "capacity_kw",
   input_power_kw: "power_kw",
   electrical_power_kw: "power_kw",
   operating_power_kw: "power_kw",
   operating_load_kw: "load_kw",
   cooling_load_kw: "load_kw",
   hvac_load_kw: "load_kw",
-  runtime_hours: "annual_hours",
   annual_runtime_hours: "annual_hours",
-  cooling_hours: "annual_cooling_hours",
+  annual_cooling_hours: "annual_cooling_hours",
+  cooling_hours_annual: "annual_cooling_hours",
   tariff_inr_per_kwh: "electricity_rate_inr_per_kwh",
-  electricity_rate: "electricity_rate_inr_per_kwh",
+  electricity_rate_inr_kwh: "electricity_rate_inr_per_kwh",
   r_value_m2k_w: "existing_r_value_m2k_w",
 };
 
@@ -51,6 +50,7 @@ export function normalizeObservationForEngineering(observation: EngineeringObser
   let field = alias || originalField;
   let numericValue = observation.numericValue;
   let unit = observation.unit;
+  const originalUnit = unitKey(unit);
 
   if (numericValue != null && Number.isFinite(numericValue)) {
     const converted = convert(numericValue, unit);
@@ -60,10 +60,10 @@ export function normalizeObservationForEngineering(observation: EngineeringObser
     if (converted && (needsPowerUnit || needsHourUnit)) {
       numericValue = converted.value;
       unit = converted.unit;
-    } else if (needsPowerUnit && unitKey(unit) && !["kw", "w", "mw", "hp", "bhp"].includes(unitKey(unit))) {
+    } else if (needsPowerUnit && !["kw", "w", "mw", "hp", "bhp"].includes(originalUnit)) {
       field = originalField;
       numericValue = observation.numericValue;
-    } else if (needsHourUnit && unitKey(unit) && !["h", "hr", "hrs", "hour", "hours", "min", "mins", "minute", "minutes"].includes(unitKey(unit))) {
+    } else if (needsHourUnit && !["h", "hr", "hrs", "hour", "hours", "min", "mins", "minute", "minutes"].includes(originalUnit)) {
       field = originalField;
       numericValue = observation.numericValue;
     }
@@ -74,8 +74,12 @@ export function normalizeObservationForEngineering(observation: EngineeringObser
     field,
     numericValue,
     unit,
-    notes: [observation.notes, field !== originalField ? `Canonicalized from ${originalField}.` : ""].filter(Boolean).join(" "),
+    notes: [observation.notes, field !== originalField ? `Canonicalized from ${originalField}.` : "", needsPowerUnitOrHourWithoutUnit(field, originalUnit) ? "Not used by physics until a compatible unit is established." : ""].filter(Boolean).join(" "),
   };
+}
+
+function needsPowerUnitOrHourWithoutUnit(field: string, unit: string) {
+  return ["capacity_kw", "power_kw", "load_kw", "annual_hours", "annual_cooling_hours"].includes(field) && !unit;
 }
 
 export function normalizeExtractionObservations<T extends { observations?: EngineeringObservation[] }>(extraction: T): T {
