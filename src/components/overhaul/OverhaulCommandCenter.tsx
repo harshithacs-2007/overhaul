@@ -23,14 +23,21 @@ export default function OverhaulCommandCenter() {
     }
   }, []);
 
+  const isEquipment = assessment?.assessmentSubject === "equipment";
+
   return (
     <>
-      <RetrofitCommandCenter />
-      {assessment?.assessmentSubject === "equipment" ? (
+      {isEquipment ? (
         <>
           <EquipmentReferencePanel extracts={extracts} />
-          <EquipmentPerformanceTwinPanel assetClass={assessment.assetClass} extracts={extracts} />
+          <EquipmentPerformanceTwinPanel assetClass={assessment?.assetClass} extracts={extracts} />
         </>
+      ) : null}
+      <RetrofitCommandCenter />
+      {isEquipment ? (
+        <div className="mx-auto mt-4 max-w-[1500px] px-4 pb-8 text-[10px] font-mono uppercase tracking-[0.12em] text-steel sm:px-6 lg:px-8">
+          Equipment twin is the primary diagnostic surface; retrofit actions below consume confirmed residuals and reference provenance.
+        </div>
       ) : null}
     </>
   );
