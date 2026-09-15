@@ -1,5 +1,5 @@
-import OverhaulCommandCenter from "@/components/overhaul/OverhaulCommandCenter";
+import RetrofitCommandCenter from "@/components/overhaul/RetrofitCommandCenter";
 
 export default function AssessmentPage() {
-  return <OverhaulCommandCenter />;
+  return <RetrofitCommandCenter />;
 }
