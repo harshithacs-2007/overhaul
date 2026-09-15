@@ -9,3 +9,4 @@ export * from "./diagnosisEngine";
 export * from "./provenanceGraph";
 export * from "./equipmentPerformanceCurve";
 export * from "./uncertaintyEngine";
+export * from "./nextBestMeasurement";
