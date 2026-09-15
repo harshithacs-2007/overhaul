@@ -8,6 +8,7 @@ import BaselineMvPanel from "./BaselineMvPanel";
 import InterventionLibraryPanel from "./InterventionLibraryPanel";
 import EconomicsPortfolioPanel from "./EconomicsPortfolioPanel";
 import DiagnosticPanel from "./DiagnosticPanel";
+import DecisionProvenancePanel from "./DecisionProvenancePanel";
 
 type Scope = "building" | "facility" | "equipment";
 type Extraction = { evidenceId?: string; evidenceType?: string; observations?: Array<{ field: string; value: string; numericValue: number | null; unit: string | null; confidence: number; sourceText: string }> };
@@ -43,10 +44,11 @@ export default function OverhaulCommandCenter() {
       <InterventionLibraryPanel scope={scope} extracts={extracts} />
       <DiagnosticPanel extracts={extracts} domain={diagnosticDomain} />
       <EconomicsPortfolioPanel />
+      <DecisionProvenancePanel scope={scope} extracts={extracts} label={assessment?.assetClass || undefined} />
       <BaselineMvPanel />
       {isEquipment ? (
         <div className="mx-auto mt-4 max-w-[1500px] px-4 pb-8 text-[10px] font-mono uppercase tracking-[0.12em] text-steel sm:px-6 lg:px-8">
-          Equipment twin is the primary diagnostic surface; retrofit actions, diagnosis, portfolio economics and measurement & verification consume confirmed residuals and reference provenance.
+          Equipment twin is the primary diagnostic surface; retrofit actions, diagnosis, portfolio economics, provenance and measurement & verification consume confirmed residuals and reference provenance.
         </div>
       ) : null}
     </>
