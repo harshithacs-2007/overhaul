@@ -116,8 +116,8 @@ export default function Twin3DCanvas(props: Props) {
 
       let flow: Group | undefined;
       let rotor: Group | undefined;
-      let currentGhost: Object3D | undefined;
-      let proposedGhost: Object3D | undefined;
+      let currentGhost: Mesh | undefined;
+      let proposedGhost: Mesh | undefined;
 
       if (props.scope === "equipment") {
         const w = Math.min(width, 6);
@@ -247,8 +247,8 @@ export default function Twin3DCanvas(props: Props) {
         field.scale.setScalar(pulse);
         if (currentGhost && proposedGhost) {
           const contrast = saving == null ? 0.12 : Math.min(0.34, 0.08 + Math.abs(saving) / 100);
-          (currentGhost.material as MeshBasicMaterial).opacity = props.mode === "observed" ? 0.1 : contrast;
-          (proposedGhost.material as MeshBasicMaterial).opacity = props.mode === "retrofit" ? 0.18 : 0.07;
+          currentGhost.material.opacity = props.mode === "observed" ? 0.1 : contrast;
+          proposedGhost.material.opacity = props.mode === "retrofit" ? 0.18 : 0.07;
           proposedGhost.scale.setScalar(1 + (Math.abs(saving ?? 0) / 100) * 0.08);
         }
         renderer.render(scene, camera);
