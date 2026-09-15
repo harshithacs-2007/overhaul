@@ -51,21 +51,22 @@ export function normalizeObservationForEngineering(observation: EngineeringObser
   let numericValue = observation.numericValue;
   let unit = observation.unit;
   const originalUnit = unitKey(unit);
+  const engineeringField = ["capacity_kw", "power_kw", "load_kw", "annual_hours", "annual_cooling_hours"].includes(field);
 
-  if (numericValue != null && Number.isFinite(numericValue)) {
+  if (numericValue != null && Number.isFinite(numericValue) && engineeringField) {
     const converted = convert(numericValue, unit);
-    const needsPowerUnit = ["capacity_kw", "power_kw", "load_kw"].includes(field);
-    const needsHourUnit = ["annual_hours", "annual_cooling_hours"].includes(field);
+    const powerUnit = ["kw", "w", "mw", "hp", "bhp"].includes(originalUnit);
+    const hourUnit = ["h", "hr", "hrs", "hour", "hours", "min", "mins", "minute", "minutes"].includes(originalUnit);
 
-    if (converted && (needsPowerUnit || needsHourUnit)) {
+    if (["capacity_kw", "power_kw", "load_kw"].includes(field) && converted && powerUnit) {
       numericValue = converted.value;
       unit = converted.unit;
-    } else if (needsPowerUnit && !["kw", "w", "mw", "hp", "bhp"].includes(originalUnit)) {
-      field = originalField;
-      numericValue = observation.numericValue;
-    } else if (needsHourUnit && !["h", "hr", "hrs", "hour", "hours", "min", "mins", "minute", "minutes"].includes(originalUnit)) {
-      field = originalField;
-      numericValue = observation.numericValue;
+    } else if (["annual_hours", "annual_cooling_hours"].includes(field) && converted && hourUnit) {
+      numericValue = converted.value;
+      unit = converted.unit;
+    } else {
+      // A value without a compatible unit must never enter the deterministic physics layer.
+      field = `${originalField}_unresolved`;
     }
   }
 
@@ -74,12 +75,8 @@ export function normalizeObservationForEngineering(observation: EngineeringObser
     field,
     numericValue,
     unit,
-    notes: [observation.notes, field !== originalField ? `Canonicalized from ${originalField}.` : "", needsPowerUnitOrHourWithoutUnit(field, originalUnit) ? "Not used by physics until a compatible unit is established." : ""].filter(Boolean).join(" "),
+    notes: [observation.notes, field !== originalField ? `Engineering field normalized from ${originalField}.` : "", field.endsWith("_unresolved") ? "Excluded from deterministic calculations until a compatible unit is established." : ""].filter(Boolean).join(" "),
   };
-}
-
-function needsPowerUnitOrHourWithoutUnit(field: string, unit: string) {
-  return ["capacity_kw", "power_kw", "load_kw", "annual_hours", "annual_cooling_hours"].includes(field) && !unit;
 }
 
 export function normalizeExtractionObservations<T extends { observations?: EngineeringObservation[] }>(extraction: T): T {
