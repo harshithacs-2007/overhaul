@@ -40,11 +40,28 @@ export default function Twin3DCanvas(props: Props) {
       const host = hostRef.current;
       host.replaceChildren();
 
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x050808);
-      scene.fog = new THREE.Fog(0x050808, 18, 36);
-      const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      const showFallback = (message: string) => {
+        host.replaceChildren();
+        const fallback = document.createElement("div");
+        fallback.className = "grid h-full min-h-[520px] place-items-center border border-steel/10 bg-[#050808] p-8 text-center";
+        fallback.innerHTML = `<div><div style="font-family:monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:#8a9ba8">3D viewport</div><div style="margin-top:8px;color:#eef5f3;font-size:14px">${message}</div><div style="margin-top:8px;color:#8a9ba8;font-size:9px;line-height:1.5">The engineering calculations remain available; this only removes the interactive renderer.</div></div>`;
+        host.appendChild(fallback);
+      };
+
+      let scene: THREE.Scene;
+      let camera: THREE.PerspectiveCamera;
+      let renderer: THREE.WebGLRenderer;
+      try {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050808);
+        scene.fog = new THREE.Fog(0x050808, 18, 36);
+        camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+      } catch {
+        showFallback("Interactive 3D is unavailable in this browser.");
+        return;
+      }
+
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.shadowMap.enabled = true;
@@ -67,8 +84,6 @@ export default function Twin3DCanvas(props: Props) {
       scene.add(root);
       const field = new THREE.Group();
       scene.add(field);
-      const animated = new THREE.Group();
-      scene.add(animated);
 
       const teal = new THREE.MeshStandardMaterial({ color: 0x2ce0ca, metalness: 0.55, roughness: 0.3 });
       const dark = new THREE.MeshStandardMaterial({ color: 0x103f3b, metalness: 0.74, roughness: 0.36 });
@@ -163,9 +178,6 @@ export default function Twin3DCanvas(props: Props) {
       const proposedUtil = props.proposedUtilization ?? currentUtil;
       const util = clamp01((props.mode === "retrofit" ? proposedUtil : currentUtil) ?? 0.35);
       const saving = props.savingPercent == null ? null : Math.max(-100, Math.min(100, props.savingPercent));
-
-      // The field is the unique part of the twin: it is a visual "causal envelope" around the model.
-      // Its size and intensity respond only to real simulation deltas, never to made-up measurements.
       const fieldScale = 1 + util * 0.55;
       const r1 = ring(Math.max(width * 0.22, 1.4) * fieldScale, Math.max(depth * 0.22, 1.2) * fieldScale, 1.2, teal, Math.max(height * 0.18, 0.25));
       const r2 = ring(Math.max(width * 0.3, 1.8) * fieldScale, Math.max(depth * 0.3, 1.6) * fieldScale, 1.2, amber, Math.max(height * 0.58, 0.55));
@@ -215,20 +227,23 @@ export default function Twin3DCanvas(props: Props) {
       ro.observe(host);
       resize();
 
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const clock = new THREE.Clock();
       const animate = () => {
         if (dead) return;
         const t = clock.getElapsedTime();
-        if (rotor) rotor.rotation.y = t * (0.45 + util * 2.1);
-        if (flow) {
-          flow.position.x = Math.sin(t * 0.9) * 0.08;
-          flow.scale.x = 1 + Math.sin(t * 2.1) * 0.05;
+        if (!reducedMotion) {
+          if (rotor) rotor.rotation.y = t * (0.45 + util * 2.1);
+          if (flow) {
+            flow.position.x = Math.sin(t * 0.9) * 0.08;
+            flow.scale.x = 1 + Math.sin(t * 2.1) * 0.05;
+          }
+          field.rotation.y = t * 0.055;
+          r1.rotation.z += 0.0015;
+          r2.rotation.z -= 0.0011;
+          r3.rotation.z += 0.0008;
         }
-        field.rotation.y = t * 0.055;
-        r1.rotation.z += 0.0015;
-        r2.rotation.z -= 0.0011;
-        r3.rotation.z += 0.0008;
-        const pulse = 0.94 + Math.sin(t * 2.4) * (0.025 + util * 0.03);
+        const pulse = reducedMotion ? 1 : 0.94 + Math.sin(t * 2.4) * (0.025 + util * 0.03);
         field.scale.setScalar(pulse);
         if (currentGhost && proposedGhost) {
           const contrast = saving == null ? 0.12 : Math.min(0.34, 0.08 + Math.abs(saving) / 100);
@@ -241,7 +256,6 @@ export default function Twin3DCanvas(props: Props) {
       };
       animate();
 
-      const disposable: THREE.Object3D[] = [scene];
       dispose = () => {
         cancelAnimationFrame(frame);
         ro.disconnect();
@@ -250,13 +264,13 @@ export default function Twin3DCanvas(props: Props) {
         renderer.domElement.removeEventListener("pointerup", onUp);
         renderer.domElement.removeEventListener("pointercancel", onUp);
         renderer.domElement.removeEventListener("wheel", onWheel);
-        disposable.forEach((object) => object.traverse((child) => {
+        scene.traverse((child) => {
           const mesh = child as THREE.Mesh;
           mesh.geometry?.dispose?.();
           const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
           if (Array.isArray(material)) material.forEach((m) => m.dispose());
           else material?.dispose?.();
-        }));
+        });
         renderer.dispose();
         host.replaceChildren();
       };
@@ -264,7 +278,7 @@ export default function Twin3DCanvas(props: Props) {
 
     void mount();
     return () => { dead = true; dispose?.(); };
-  }, [props.scope, props.mode, props.widthM, props.depthM, props.heightM, props.capacityKW, props.loadKW, props.powerKW, props.currentLoadKW, props.proposedLoadKW, props.currentPowerKW, props.proposedPowerKW, props.currentUtilization, props.proposedUtilization, props.savingPercent, props.title]);
+  }, [props.scope, props.mode, props.widthM, props.depthM, props.heightM, props.capacityKW, props.loadKW, props.powerKW, props.currentLoadKW, props.proposedLoadKW, props.currentPowerKW, props.proposedPowerKW, props.currentUtilization, props.proposedUtilization, props.savingPercent]);
 
   return <div ref={hostRef} className="h-full min-h-[520px] w-full touch-none" aria-label={`${props.title} interactive 3D engineering twin`} />;
 }
