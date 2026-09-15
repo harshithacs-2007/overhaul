@@ -39,9 +39,6 @@ function fmt(value: number | null) {
 }
 
 function buildImpact(scope: Scope, values: Values): TwinImpact | null {
-  const rate = n(values, "electricity_rate_inr_per_kwh", "electricity_rate");
-  if (rate == null) return null;
-
   if (scope === "equipment") {
     const load = n(values, "load_kw");
     const capacity = n(values, "capacity_kw");
@@ -52,7 +49,7 @@ function buildImpact(scope: Scope, values: Values): TwinImpact | null {
     const proposedHours = n(values, "proposed_runtime_hours");
     if (load == null || capacity == null || efficiency == null || hours == null) return null;
 
-    const baseline = { loadKW: load, ratedCapacityKW: capacity, efficiency, annualHours: hours, electricityRateINRPerKWh: rate };
+    const baseline = { loadKW: load, ratedCapacityKW: capacity, efficiency, annualHours: hours, electricityRateINRPerKWh: 0 };
     let retrofit: Partial<typeof baseline> | undefined;
     if (proposedEfficiency != null && proposedEfficiency !== efficiency) retrofit = { efficiency: proposedEfficiency };
     else if (baselineHours != null && proposedHours != null && baselineHours !== proposedHours) retrofit = { annualHours: proposedHours };
@@ -64,18 +61,19 @@ function buildImpact(scope: Scope, values: Values): TwinImpact | null {
 
   const floorArea = n(values, "floor_area_m2", "floor_area");
   const ua = n(values, "envelope_ua_w_per_k", "envelope_ua");
+  const envelopeArea = n(values, "envelope_area_m2");
   const outdoor = Number(values.outdoor_temp_c);
   const indoor = Number(values.indoor_temp_c);
   const capacity = n(values, "capacity_kw");
-  const cop = n(values, "efficiency", "cop");
+  const cop = n(values, "cop", "hvac_cop", "efficiency");
   const hours = n(values, "annual_cooling_hours", "cooling_hours");
   const proposedR = n(values, "proposed_r_value_m2k_w");
   const currentR = n(values, "existing_r_value_m2k_w");
-  if (floorArea == null || ua == null || !Number.isFinite(outdoor) || !Number.isFinite(indoor) || capacity == null || cop == null || hours == null) return null;
+  if (floorArea == null || ua == null || envelopeArea == null || !Number.isFinite(outdoor) || !Number.isFinite(indoor) || capacity == null || cop == null || hours == null) return null;
   if (proposedR == null || proposedR === currentR || proposedR <= 0) return null;
 
-  const baseline = { floorAreaM2: floorArea, envelopeUA_W_per_K: ua, ventilationM3s: 0, outdoorTempC: outdoor, indoorTempC: indoor, solarGainKW: 0, internalGainKW: 0, hvacCapacityKW: capacity, hvacCOP: cop, annualCoolingHours: hours, electricityRateINRPerKWh: rate };
-  const proposedUA = floorArea / proposedR;
+  const baseline = { floorAreaM2: floorArea, envelopeUA_W_per_K: ua, ventilationM3s: n(values, "ventilation_m3s") ?? 0, outdoorTempC: outdoor, indoorTempC: indoor, solarGainKW: n(values, "solar_gain_kw") ?? 0, internalGainKW: n(values, "internal_gain_kw") ?? 0, hvacCapacityKW: capacity, hvacCOP: cop, annualCoolingHours: hours, electricityRateINRPerKWh: 0 };
+  const proposedUA = envelopeArea / proposedR;
   const result = simulatePhysicsScenario({ subject: scope === "facility" ? "facility" : "building", baseline, retrofit: { envelopeUA_W_per_K: proposedUA } });
   return { current: result.baseline, proposed: result.proposed, savingPercent: result.delta.savingPercent, deltaPower: result.delta.electricalPowerKW, deltaLoad: result.delta.thermalLoadKW };
 }
@@ -90,15 +88,16 @@ export default function LiveTwinStudio({ scope, title, values }: { scope: Scope;
     };
     sync();
     window.addEventListener("overhaul:evidence-change", sync);
+    window.addEventListener("overhaul:supplemental-change", sync);
     window.addEventListener("storage", sync);
-    return () => { window.removeEventListener("overhaul:evidence-change", sync); window.removeEventListener("storage", sync); };
+    return () => { window.removeEventListener("overhaul:evidence-change", sync); window.removeEventListener("overhaul:supplemental-change", sync); window.removeEventListener("storage", sync); };
   }, []);
 
   const detected = useMemo(() => uniqueLabels(scan), [scan]);
   const width = n(values, "geometry_width_m", "width_m");
   const depth = n(values, "geometry_depth_m", "depth_m");
   const height = n(values, "geometry_height_m", "height_m");
-  const efficiency = n(values, "efficiency", "cop");
+  const efficiency = n(values, "cop", "hvac_cop", "efficiency");
   const proposedEfficiency = n(values, "proposed_efficiency", "proposed_cop");
   const proposedR = n(values, "proposed_r_value_m2k_w");
   const currentR = n(values, "existing_r_value_m2k_w");
@@ -118,82 +117,33 @@ export default function LiveTwinStudio({ scope, title, values }: { scope: Scope;
           <p className="mt-1 max-w-3xl text-[10px] leading-5 text-steel">Geometry stays evidence-bound while motion, utilization and counterfactual state changes are driven by the same deterministic physics used by OVERHAUL's decision layer.</p>
         </div>
         <div className="flex gap-1 border border-steel/15 bg-black/25 p-1">
-          {(["observed", "retrofit"] as const).map((value) => (
-            <button key={value} type="button" onClick={() => setMode(value)} className={`px-3 py-2 font-mono text-[8px] uppercase tracking-[0.12em] ${mode === value ? "bg-teal text-navy" : "text-steel hover:text-paper"}`}>{value === "observed" ? "Observed state" : "Counterfactual"}</button>
+          {["observed", "retrofit"].map((value) => (
+            <button key={value} type="button" onClick={() => setMode(value as "observed" | "retrofit")} className={`px-3 py-2 font-mono text-[8px] uppercase tracking-[0.12em] ${mode === value ? "bg-teal text-navy" : "text-steel hover:text-paper"}`}>{value === "observed" ? "Observed state" : "Counterfactual"}</button>
           ))}
         </div>
       </div>
 
       <div className="grid xl:grid-cols-[1.3fr_.7fr]">
         <div className="relative min-h-[560px] border-b border-steel/10 xl:border-b-0 xl:border-r">
-          <Twin3DCanvas
-            scope={scope}
-            mode={mode}
-            widthM={width}
-            depthM={depth}
-            heightM={height}
-            capacityKW={n(values, "capacity_kw")}
-            loadKW={displayed?.load ?? n(values, "load_kw")}
-            powerKW={displayed?.power ?? n(values, "power_kw")}
-            currentLoadKW={impact?.current.load ?? null}
-            proposedLoadKW={impact?.proposed.load ?? null}
-            currentPowerKW={impact?.current.power ?? null}
-            proposedPowerKW={impact?.proposed.power ?? null}
-            currentUtilization={impact?.current.utilization ?? null}
-            proposedUtilization={impact?.proposed.utilization ?? null}
-            savingPercent={impact?.savingPercent ?? null}
-            title={title}
-          />
-          <div className="pointer-events-none absolute left-5 top-5 border border-steel/15 bg-black/55 px-3 py-2 backdrop-blur">
-            <p className="font-mono text-[7px] uppercase text-steel">Twin state</p>
-            <p className={`mt-1 font-mono text-[10px] uppercase ${mode === "retrofit" ? "text-amber-200" : "text-teal"}`}>{mode === "retrofit" ? "Counterfactual / intervention" : "Observed / current"}</p>
-          </div>
-          <div className="pointer-events-none absolute right-5 top-5 border border-steel/15 bg-black/55 px-3 py-2 text-right backdrop-blur">
-            <p className="font-mono text-[7px] uppercase text-steel">Physics link</p>
-            <p className="mt-1 font-mono text-[10px] uppercase text-paper">{impact ? "LIVE" : "WAITING"}</p>
-          </div>
-          <div className="pointer-events-none absolute bottom-5 left-5 right-5 flex flex-wrap items-end justify-between gap-3">
-            <div className="border border-steel/15 bg-black/65 px-3 py-2 font-mono text-[8px] uppercase text-steel backdrop-blur">{hasGeometry ? `${width?.toFixed(2)} × ${depth?.toFixed(2)} × ${height?.toFixed(2)} m` : "Metric geometry unresolved · schematic only"}</div>
-            {impact ? <div className="border border-amber-200/20 bg-black/70 px-3 py-2 text-right backdrop-blur"><p className="font-mono text-[7px] uppercase text-steel">Annual energy delta</p><p className={`font-mono text-sm ${impact.savingPercent >= 0 ? "text-amber-200" : "text-red-200"}`}>{impact.savingPercent >= 0 ? "−" : "+"}{Math.abs(impact.savingPercent).toFixed(1)}%</p></div> : null}
-          </div>
+          <Twin3DCanvas scope={scope} mode={mode} widthM={width} depthM={depth} heightM={height} capacityKW={n(values, "capacity_kw")} loadKW={displayed?.load ?? n(values, "load_kw")} powerKW={displayed?.power ?? n(values, "power_kw")} currentLoadKW={impact?.current.load ?? null} proposedLoadKW={impact?.proposed.load ?? null} currentPowerKW={impact?.current.power ?? null} proposedPowerKW={impact?.proposed.power ?? null} currentUtilization={impact?.current.utilization ?? null} proposedUtilization={impact?.proposed.utilization ?? null} savingPercent={impact?.savingPercent ?? null} title={title} />
+          <div className="pointer-events-none absolute left-5 top-5 border border-steel/15 bg-black/55 px-3 py-2 backdrop-blur"><p className="font-mono text-[7px] uppercase text-steel">Twin state</p><p className={`mt-1 font-mono text-[10px] uppercase ${mode === "retrofit" ? "text-amber-200" : "text-teal"}`}>{mode === "retrofit" ? "Counterfactual / intervention" : "Observed / current"}</p></div>
+          <div className="pointer-events-none absolute right-5 top-5 border border-steel/15 bg-black/55 px-3 py-2 text-right backdrop-blur"><p className="font-mono text-[7px] uppercase text-steel">Physics link</p><p className="mt-1 font-mono text-[10px] uppercase text-paper">{impact ? "LIVE" : "WAITING"}</p></div>
+          <div className="pointer-events-none absolute bottom-5 left-5 right-5 flex flex-wrap items-end justify-between gap-3"><div className="border border-steel/15 bg-black/65 px-3 py-2 font-mono text-[8px] uppercase text-steel backdrop-blur">{hasGeometry ? `${width?.toFixed(2)} × ${depth?.toFixed(2)} × ${height?.toFixed(2)} m` : "Metric geometry unresolved · schematic only"}</div>{impact ? <div className="border border-amber-200/20 bg-black/70 px-3 py-2 text-right backdrop-blur"><p className="font-mono text-[7px] uppercase text-steel">Annual energy delta</p><p className={`font-mono text-sm ${impact.savingPercent >= 0 ? "text-amber-200" : "text-red-200"}`}>{impact.savingPercent >= 0 ? "−" : "+"}{Math.abs(impact.savingPercent).toFixed(1)}%</p></div> : null}</div>
         </div>
 
         <aside className="p-5">
-          <div className="grid grid-cols-2 gap-2">
-            <State label="Geometry" value={hasGeometry ? "Metric" : "Schematic"} good={hasGeometry} />
-            <State label="Physics" value={hasPhysics ? "Live" : "Waiting"} good={hasPhysics} />
-            <State label="Scan" value={scan?.completed ? "360°" : scan?.coveragePercent ? `${scan.coveragePercent}%` : "—"} good={Boolean(scan?.coveragePercent)} />
-            <State label="Counterfactual" value={comparisonReady ? "Computed" : "Blocked"} good={comparisonReady} />
-          </div>
+          <div className="grid grid-cols-2 gap-2"><State label="Geometry" value={hasGeometry ? "Metric" : "Schematic"} good={hasGeometry} /><State label="Physics" value={hasPhysics ? "Live" : "Waiting"} good={hasPhysics} /><State label="Scan" value={scan?.completed ? "360°" : scan?.coveragePercent ? `${scan.coveragePercent}%` : "—"} good={Boolean(scan?.coveragePercent)} /><State label="Counterfactual" value={comparisonReady ? "Computed" : "Blocked"} good={comparisonReady} /></div>
 
           <Panel title="Causal telemetry" accent={Boolean(impact)}>
-            {displayed ? <div className="grid grid-cols-2 gap-2">
-              <Metric label="Load" value={`${fmt(displayed.load)} kW`} />
-              <Metric label="Power" value={`${fmt(displayed.power)} kW`} />
-              <Metric label="Utilization" value={`${fmt(displayed.utilization * 100)}%`} />
-              <Metric label="Annual energy" value={`${fmt(displayed.energy)} kWh`} />
-            </div> : <p className="text-[9px] leading-4 text-steel">Enough measured/reference inputs are not yet available to run a deterministic counterfactual.</p>}
+            {displayed ? <div className="grid grid-cols-2 gap-2"><Metric label="Load" value={`${fmt(displayed.load)} kW`} /><Metric label="Power" value={`${fmt(displayed.power)} kW`} /><Metric label="Utilization" value={`${fmt(displayed.utilization * 100)}%`} /><Metric label="Annual energy" value={`${fmt(displayed.energy)} kWh`} /></div> : <p className="text-[9px] leading-4 text-steel">Enough physical inputs are not yet available to run a deterministic state comparison. Electricity tariff is not required for this physical view.</p>}
             {impact ? <p className="mt-3 border-t border-steel/10 pt-3 text-[8px] leading-4 text-steel">Observed → counterfactual power: {fmt(impact.current.power)} → {fmt(impact.proposed.power)} kW. Thermal/load delta: {impact.deltaLoad >= 0 ? "+" : ""}{fmt(impact.deltaLoad)} kW.</p> : null}
           </Panel>
 
-          <Panel title="Scene inventory">
-            {detected.length ? detected.map(([label, count]) => <div key={label} className="flex items-center justify-between border-b border-steel/10 py-2 text-[9px]"><span>{label}</span><span className="font-mono text-teal">×{count}</span></div>) : <p className="text-[9px] leading-4 text-steel">Scan a room, appliance or machine to seed the evidence map. Objects are not assigned coordinates the scan never established.</p>}
-          </Panel>
+          <Panel title="Scene inventory">{detected.length ? detected.map(([label, count]) => <div key={label} className="flex items-center justify-between border-b border-steel/10 py-2 text-[9px]"><span>{label}</span><span className="font-mono text-teal">×{count}</span></div>) : <p className="text-[9px] leading-4 text-steel">Scan a room, appliance or machine to seed the evidence map. Objects are not assigned coordinates the scan never established.</p>}</Panel>
 
-          <Panel title="Engineering state">
-            <div className="space-y-2 text-[9px] text-steel">
-              <p><span className="text-paper">Rated capacity:</span> {values.capacity_kw != null ? `${values.capacity_kw} kW` : "not established"}</p>
-              <p><span className="text-paper">Observed load:</span> {values.load_kw != null ? `${values.load_kw} kW` : "not established"}</p>
-              <p><span className="text-paper">Measured power:</span> {values.power_kw != null ? `${values.power_kw} kW` : "not measured"}</p>
-              <p><span className="text-paper">Baseline efficiency:</span> {efficiency != null ? efficiency : "not established"}</p>
-              {proposedEfficiency != null ? <p><span className="text-paper">Proposed efficiency:</span> {proposedEfficiency}</p> : null}
-              {proposedR != null ? <p><span className="text-paper">Proposed R-value:</span> {proposedR} m²K/W</p> : null}
-            </div>
-          </Panel>
+          <Panel title="Engineering state"><div className="space-y-2 text-[9px] text-steel"><p><span className="text-paper">Rated capacity:</span> {values.capacity_kw != null ? `${values.capacity_kw} kW` : "not established"}</p><p><span className="text-paper">Observed load:</span> {values.load_kw != null ? `${values.load_kw} kW` : "not established"}</p><p><span className="text-paper">Measured power:</span> {values.power_kw != null ? `${values.power_kw} kW` : "not measured"}</p><p><span className="text-paper">Baseline efficiency:</span> {efficiency != null ? efficiency : "not established"}</p>{proposedEfficiency != null ? <p><span className="text-paper">Proposed efficiency:</span> {proposedEfficiency}</p> : null}{proposedR != null ? <p><span className="text-paper">Proposed R-value:</span> {proposedR} m²K/W</p> : null}</div></Panel>
 
-          <Panel title="Why this is different" accent>
-            <p className="text-[9px] leading-5 text-steel">OVERHAUL treats the 3D scene as a visual front-end to an evidence graph. Scan findings, measured values, model assumptions and retrofit consequences remain separate. A change is allowed to move the twin only when the engineering layer can explain the change.</p>
-          </Panel>
+          <Panel title="Why this is different" accent><p className="text-[9px] leading-5 text-steel">OVERHAUL treats the 3D scene as a visual front-end to an evidence graph. Scan findings, measured values, model assumptions and retrofit consequences remain separate. A change is allowed to move the twin only when the engineering layer can explain the change.</p></Panel>
 
           <p className="mt-4 font-mono text-[7px] uppercase tracking-[0.12em] text-steel">Drag to orbit · wheel to zoom · current ↔ counterfactual</p>
         </aside>
