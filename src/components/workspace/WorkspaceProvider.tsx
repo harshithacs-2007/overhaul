@@ -29,9 +29,7 @@ export type WorkspaceSection =
   | "simulate"
   | "optimize"
   | "sequence"
-  /** @deprecated mapped to simulate */
   | "retrofit"
-  /** @deprecated mapped to optimize */
   | "results";
 
 export type Selection =
@@ -41,6 +39,7 @@ export type Selection =
 
 export type CenterMode =
   | "first"
+  | "overview"
   | "camera"
   | "upload"
   | "manual"
@@ -107,6 +106,7 @@ function normalizeSection(s: WorkspaceSection): WorkspaceSection {
 }
 
 function sectionForMode(mode: CenterMode): WorkspaceSection {
+  if (mode === "overview" || mode === "first") return "overview";
   if (mode === "evidence" || mode === "camera" || mode === "upload")
     return "evidence";
   if (mode === "building" || mode === "manual") return "building";
@@ -129,24 +129,22 @@ function reducer(state: State, action: Action): State {
         };
       }
       const mode: CenterMode =
-        section === "evidence"
-          ? "evidence"
-          : section === "building"
-            ? "building"
-            : section === "climate" ||
-                section === "hvac" ||
-                section === "physics"
-              ? "physics"
-              : section === "simulate"
-                ? "simulate"
-                : section === "optimize"
-                  ? "optimize"
-                  : section === "sequence"
-                    ? "sequence"
-                    : section === "overview"
-                      ? state.evidence.length
-                        ? "building"
-                        : "first"
+        section === "overview"
+          ? state.evidence.length
+            ? "overview"
+            : "first"
+          : section === "evidence"
+            ? "evidence"
+            : section === "building"
+              ? "building"
+              : section === "climate" || section === "hvac" || section === "physics"
+                ? "physics"
+                : section === "simulate"
+                  ? "simulate"
+                  : section === "optimize"
+                    ? "optimize"
+                    : section === "sequence"
+                      ? "sequence"
                       : state.centerMode;
       return { ...state, section, centerMode: mode };
     }
