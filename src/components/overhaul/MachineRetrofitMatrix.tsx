@@ -15,7 +15,7 @@ const FIELD_ALIASES: Record<MachineMetric, string[]> = {
 };
 
 function available(values: Values, metric: MachineMetric) { return FIELD_ALIASES[metric].some((key) => Number.isFinite(Number(values[key])) && Number(values[key]) >= 0); }
-function pretty(machineClass: MachineClass) { return machineClass.replaceAll("_", " "); }
+function pretty(machineClass: string) { return machineClass.replaceAll("_", " "); }
 
 export default function MachineRetrofitMatrix({ assetClass, values }: { assetClass?: string | null; values: Values }) {
   const [machineClass, setMachineClass] = useState<MachineClass>(normalizeMachineClass(assetClass));
