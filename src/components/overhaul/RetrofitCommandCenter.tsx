@@ -96,6 +96,14 @@ export default function RetrofitCommandCenter() {
   const sequence = scope === "equipment" ? ["Condition diagnosis", "Evidence-gated replacement", "Controls optimisation", "Capacity verification"] : ["Envelope heat-flow reduction", "HVAC capacity / efficiency check", "Controls optimisation", "Post-implementation verification"];
   const ml = rescastSurrogateStatus();
 
+  useEffect(() => {
+    try {
+      if (interventionResult) sessionStorage.setItem("overhaul:latest-intervention", JSON.stringify(interventionResult));
+    } catch {
+      // Session storage is an optional audit bridge; the current calculation remains local.
+    }
+  }, [interventionResult]);
+
   if (!assessment) return <main className="min-h-screen bg-navy p-12 text-center text-steel">No assessment package found. <Link href="/" className="text-teal underline">Start a new assessment</Link>.</main>;
 
   return <main className="min-h-screen bg-navy text-paper"><div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8">
