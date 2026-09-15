@@ -100,26 +100,6 @@ function observationMax(
   return found ? result : undefined;
 }
 
-function expectedObservations(
-  observations: ShadowObservation[],
-  expectedSignals: ExpectedSignal[],
-): ShadowObservation[] {
-  const output: ShadowObservation[] = [];
-  for (const expected of expectedSignals) {
-    const meanValue = observationMean(observations, expected.key);
-    if (meanValue === undefined) continue;
-    const sourceObservation = observations.find((item) => item.key === expected.key);
-    output.push({
-      key: expected.key,
-      value: meanValue,
-      unit: expected.unit,
-      source: sourceObservation?.source ?? "measured",
-      confidence: sourceObservation?.confidence ?? 1,
-    });
-  }
-  return output;
-}
-
 export function summarizeRescastShadowWindow(
   records: NormalizedRecord[],
   observations: ShadowObservation[] = normalizedRecordsToShadowObservations(records),
@@ -133,8 +113,8 @@ export function summarizeRescastShadowWindow(
   return {
     intervalCount: records.length,
     electricityEnergyKWh: sum(electricityEnergy),
-    meanElectricityPowerKW: observationMean(observations, "power_kw"),
-    peakElectricityPowerKW: observationMax(observations, "power_kw"),
+    meanElectricityPowerKW: observationMean(observations, "power_kw") ?? mean(electricityPower),
+    peakElectricityPowerKW: observationMax(observations, "power_kw") ?? max(electricityPower),
     meanHVACLoadKW: observationMean(observations, "load_kw") ?? mean(hvacLoad),
     peakHVACLoadKW: observationMax(observations, "load_kw") ?? max(hvacLoad),
     meanIndoorTempC: observationMean(observations, "indoor_temp_c") ?? mean(indoorTemp),
@@ -155,10 +135,12 @@ export function buildRescastDigitalShadow(
   const observations = normalizedRecordsToShadowObservations(input.records);
   const subject = input.subject ?? "building";
   const observed = summarizeRescastShadowWindow(input.records, observations);
-  const shadowObservations = expectedObservations(observations, input.expectedSignals ?? []);
   const expectedSignals = input.expectedSignals ?? [];
 
-  const shadow = buildDigitalShadow(subject, shadowObservations, expectedSignals);
+  // Critical invariant: the observed series stays observed. Expected values
+  // must come from an independent reference/calibration model, never from the
+  // same observations being compared.
+  const shadow = buildDigitalShadow(subject, observations, expectedSignals);
   const timestamps = input.records
     .map((record) => record.timestamp)
     .filter((timestamp): timestamp is string => typeof timestamp === "string" && timestamp.length > 0)
