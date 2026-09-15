@@ -23,6 +23,12 @@ const FIELD_ALIASES: Record<string, string> = {
   tariff_inr_per_kwh: "electricity_rate_inr_per_kwh",
   electricity_rate_inr_kwh: "electricity_rate_inr_per_kwh",
   r_value_m2k_w: "existing_r_value_m2k_w",
+  current_r_value_m2k_w: "existing_r_value_m2k_w",
+  proposed_r_value: "proposed_r_value_m2k_w",
+  target_r_value_m2k_w: "proposed_r_value_m2k_w",
+  building_envelope_area_m2: "envelope_area_m2",
+  envelope_surface_area_m2: "envelope_area_m2",
+  wall_roof_envelope_area_m2: "envelope_area_m2",
 };
 
 function canonical(field: string) {
@@ -65,7 +71,6 @@ export function normalizeObservationForEngineering(observation: EngineeringObser
       numericValue = converted.value;
       unit = converted.unit;
     } else {
-      // A value without a compatible unit must never enter the deterministic physics layer.
       field = `${originalField}_unresolved`;
     }
   }
