@@ -8,6 +8,7 @@ import {
 } from "./WorkspaceProvider";
 import { FirstExperience } from "./FirstExperience";
 import { Inspector } from "./Inspector";
+import { OverviewPanel } from "./OverviewPanel";
 import { EvidencePanel } from "@/components/evidence/EvidencePanel";
 import { UploadDropzone } from "@/components/evidence/UploadDropzone";
 import { BuildingCanvas } from "@/components/building/BuildingCanvas";
@@ -94,7 +95,6 @@ export function WorkspaceShell() {
                   <button
                     type="button"
                     onClick={() => {
-                      // Single dispatch — setSection owns centerMode (avoids nav race)
                       setSection(item.id);
                       setNavOpen(false);
                     }}
@@ -154,6 +154,10 @@ export function WorkspaceShell() {
               {state.centerMode === "sequence" && (
                 <RetrofitPanel view="sequence" />
               )}
+              {state.section === "overview" &&
+                state.centerMode === "building" && (
+                  <OverviewPanel />
+                )}
             </motion.div>
           </AnimatePresence>
         </main>
