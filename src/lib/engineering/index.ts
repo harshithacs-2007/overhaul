@@ -8,3 +8,4 @@ export * from "./portfolioOptimizer";
 export * from "./diagnosisEngine";
 export * from "./provenanceGraph";
 export * from "./equipmentPerformanceCurve";
+export * from "./uncertaintyEngine";
