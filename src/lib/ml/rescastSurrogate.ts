@@ -3,27 +3,37 @@ export type SurrogateTarget = "hvac_load_kw" | "electricity_total_kw" | "total_l
 type ModelTarget = {
   sourceColumn: string;
   rowsUsed: number;
+  splitRows?: { train: number; validation: number; test: number };
   r2: number;
+  validationMetrics?: { mae: number; rmse: number; r2: number };
+  testMetrics?: { mae: number; rmse: number; r2: number };
+  meanBaselineTestMetrics?: { mae: number; rmse: number; r2: number };
+  selectedLambda?: number;
+  testAbsoluteResidualP50?: number;
+  testAbsoluteResidualP90?: number;
+  testFeatureDistanceP90?: number;
+  medianInputMissingFractionTrain?: number;
   featureMean: number[];
   featureScale: number[];
   coefficients: number[];
   intercept: number;
   targetMean: number;
   targetStd: number;
+  screeningUseOnly?: boolean;
+  unitStatus?: string;
 };
 
 type RescastModel = {
-  schemaVersion: "1.0";
+  schemaVersion: "1.0" | "1.1";
   trainingDataset: string;
   sourceRowsSampled: number;
   sourceFeatures: string[];
   method: string;
-  note: string;
+  note?: string;
+  screeningDisclaimer?: string;
   targets: Partial<Record<SurrogateTarget, ModelTarget>>;
 };
 
-// Optional learned model payload. The application must remain fully functional when
-// no trained artifact has been checked into the repository yet.
 let runtimeModel: RescastModel | null = null;
 
 export function registerRescastModel(model: RescastModel | null) {
@@ -37,13 +47,11 @@ export function rescastSurrogateStatus() {
     sourceRowsSampled: runtimeModel?.sourceRowsSampled ?? null,
     method: runtimeModel?.method ?? null,
     targets: Object.keys(runtimeModel?.targets ?? {}),
+    screeningOnly: true,
   };
 }
 
-export function predictRescastSurrogate(
-  target: SurrogateTarget,
-  features: Record<string, number>,
-) {
+export function predictRescastSurrogate(target: SurrogateTarget, features: Record<string, number>) {
   const model = runtimeModel?.targets[target];
   if (!model || !runtimeModel) return null;
 
@@ -54,36 +62,43 @@ export function predictRescastSurrogate(
       missingFeatures += 1;
       return 0;
     }
-    return (raw - model.featureMean[index]) / model.featureScale[index];
+    return (raw - model.featureMean[index]) / (model.featureScale[index] || 1);
   });
 
   const prediction = model.intercept + model.coefficients.reduce(
     (sum, coefficient, index) => sum + coefficient * (vector[index] ?? 0),
     0,
   );
-  const uncertaintyRatio = Math.min(1, missingFeatures / Math.max(runtimeModel.sourceFeatures.length, 1));
-  const lower = prediction - model.targetStd * uncertaintyRatio;
-  const upper = prediction + model.targetStd * uncertaintyRatio;
+  const missingRatio = missingFeatures / Math.max(runtimeModel.sourceFeatures.length, 1);
+  const residualP90 = model.testAbsoluteResidualP90 ?? model.targetStd;
+  const uncertaintyRadius = residualP90 * Math.min(1, Math.max(0.1, missingRatio));
 
   return {
     value: prediction,
     target,
-    modelR2: model.r2,
+    modelR2: model.testMetrics?.r2 ?? model.r2,
     rowsUsed: model.rowsUsed,
     trainingDataset: runtimeModel.trainingDataset,
     missingFeatures,
-    uncertainty: missingFeatures ? { lower, upper, ratio: uncertaintyRatio } : null,
+    applicability: missingFeatures === 0 ? "complete_features" : "partial_features",
+    uncertainty: {
+      lower: prediction - uncertaintyRadius,
+      upper: prediction + uncertaintyRadius,
+      radius: uncertaintyRadius,
+      basis: "test residual P90 scaled for missing runtime features; screening only",
+    },
+    engineeringAuthority: "deterministic_physics",
   };
 }
 
 /**
- * Convert a JSON-safe trained artifact into the runtime model without letting
- * malformed model payloads silently become engineering inputs.
+ * Load a JSON-safe trained artifact. Invalid shapes or incompatible vector lengths
+ * are rejected rather than becoming silent engineering inputs.
  */
 export function loadRescastModel(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<RescastModel>;
-  if (candidate.schemaVersion !== "1.0" || !Array.isArray(candidate.sourceFeatures) || !candidate.targets) return false;
+  if ((candidate.schemaVersion !== "1.0" && candidate.schemaVersion !== "1.1") || !Array.isArray(candidate.sourceFeatures) || !candidate.targets) return false;
 
   const targets: Partial<Record<SurrogateTarget, ModelTarget>> = {};
   for (const key of ["hvac_load_kw", "electricity_total_kw", "total_load_kw"] as const) {
@@ -98,12 +113,13 @@ export function loadRescastModel(value: unknown): boolean {
 
   if (!Object.keys(targets).length || typeof candidate.trainingDataset !== "string") return false;
   runtimeModel = {
-    schemaVersion: "1.0",
+    schemaVersion: candidate.schemaVersion,
     trainingDataset: candidate.trainingDataset,
     sourceRowsSampled: Number(candidate.sourceRowsSampled) || 0,
     sourceFeatures: candidate.sourceFeatures,
     method: typeof candidate.method === "string" ? candidate.method : "unknown",
     note: typeof candidate.note === "string" ? candidate.note : "",
+    screeningDisclaimer: typeof candidate.screeningDisclaimer === "string" ? candidate.screeningDisclaimer : "screening only",
     targets,
   };
   return true;
