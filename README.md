@@ -1,6 +1,8 @@
 # OVERHAUL
 
-**OVERHAUL is a universal retrofit intelligence engine for buildings, facilities, and equipment.** It turns evidence into an engineering model, compares interventions before money is spent, explains the decision chain, and is designed to verify outcomes after implementation.
+**OVERHAUL is a universal retrofit intelligence engine for buildings, facilities, and equipment.** Its primary job is to determine **which retrofit intervention is justified, what it will change before money is spent, how confident that prediction is, and whether the implemented result matches the model.**
+
+RCA, data collection, digital twins, diagnostics, and computer vision are supporting layers. The product outcome is the **retrofit decision**.
 
 The product is **evidence-first and engineering-constrained**. AI/ML components may assist perception, surrogate modeling, or orchestration, but the application does not treat an AI-generated number as an engineering fact. Deterministic physics, explicit reference data, provenance, uncertainty, and evidence gates remain the basis for decision-critical calculations.
 
@@ -8,16 +10,22 @@ The product is **evidence-first and engineering-constrained**. AI/ML components 
 
 `SEE → UNDERSTAND → MODEL → COMPARE → DIAGNOSE → SIMULATE → OPTIMIZE → DECIDE → IMPLEMENT → VERIFY → LEARN`
 
-### Core capabilities
+The key loop is:
 
-- Evidence-first asset intake for buildings, facilities, and equipment
-- Semantic asset and digital-twin reconstruction
-- Expected-state vs actual-state digital shadow and residual analysis
-- Evidence-backed equipment performance curves
-- Fault detection and diagnostic reasoning
-- Deterministic retrofit intervention simulation
+`REAL ASSET → EVIDENCE → BASELINE → RETROFIT OPTIONS → WHAT-IF SIMULATION → TRADE-OFFS → DECISION → VERIFY`
+
+### Core retrofit capabilities
+
+- Evidence-first intake for buildings, facilities, machinery, and equipment
+- Retrofit-oriented digital twin / digital shadow reconstruction
+- Current vs counterfactual retrofit comparison in an interactive 3D workspace
+- Deterministic building thermal-load and HVAC simulation
+- Deterministic equipment power, runtime, capacity, and efficiency simulation
 - Coupled envelope + HVAC reasoning
-- Economics, sensitivity, portfolio optimization, and decision provenance
+- Root-cause analysis used to explain why a retrofit is or is not justified
+- Evidence-backed retrofit candidate generation and intervention scoring
+- Economics, sensitivity, uncertainty, portfolio optimization, and decision provenance
+- Measure-and-verify workflow for post-implementation reality checks
 - Dataset adapters for climate, building, HVAC/FDD, retrofit, materials, and geometry sources
 - RESCAST surrogate infrastructure where a trained/calibrated model is appropriate
 - Audit-oriented provenance and uncertainty handling
@@ -26,7 +34,7 @@ The product is **evidence-first and engineering-constrained**. AI/ML components 
 
 ## Geometry and BIM/CAD interoperability
 
-OVERHAUL separates **semantic engineering identity** from visualization geometry. The asset twin exposes a metric geometry bridge only when width, depth, and height are evidenced or explicitly supplied. Missing geometry stays visibly unresolved rather than being fabricated.
+OVERHAUL separates **semantic engineering identity** from visualization geometry. The asset twin exposes metric geometry only when width, depth, and height are evidenced or explicitly supplied. Missing geometry stays visibly unresolved rather than being fabricated.
 
 The interchange layer exports:
 
@@ -45,29 +53,24 @@ Source records are promoted into engineering quantities only when their semantic
 ## Stack
 
 - Next.js App Router + TypeScript + Tailwind CSS
-- Supabase for persisted climate/data services where configured
+- Supabase for persistent project/evidence/engineering memory where configured
+- Three.js for the in-browser interactive 3D engineering workspace
 - Framer Motion
 - Vitest
-- Vercel
+- Cloudflare Workers / Pages deployment flow
 
 ## Setup
 
-1. Copy `.env.example` to `.env.local` and configure Supabase values when using the persisted climate services.
-2. Run `supabase/schema.sql` in the Supabase SQL editor when database-backed features are required.
+1. Copy `.env.example` to `.env.local` and configure Supabase values when persisted services are required.
+2. Run the required Supabase schema in the Supabase SQL editor when database-backed features are enabled.
 3. Run `npm install`.
 4. Run `npm run dev`.
-
-## Environment variables
-
-| Variable | Where | Purpose |
-|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Client + server | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client + server | RLS-scoped Supabase access |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Server-side climate cache writes; never expose to the client |
 
 ## Engineering architecture
 
 Pure engineering functions live under `src/lib/engineering/`, with dataset normalization and adapters under `src/lib/data/`. The application keeps evidence acquisition, asset modeling, reference expectations, simulation, diagnostics, economics, and provenance as separable layers so individual calculations can be tested and audited.
+
+The UI is intentionally **retrofit-first**: users should provide the least information necessary to establish a defensible baseline, see candidate intervention consequences, compare current vs counterfactual states, and proceed toward implementation and verification.
 
 ## Scripts
 
