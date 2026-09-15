@@ -22,6 +22,7 @@ The product is **evidence-first and engineering-constrained**. AI/ML components 
 - RESCAST surrogate infrastructure where a trained/calibrated model is appropriate
 - Audit-oriented provenance and uncertainty handling
 - Parametric Blender/CAD interoperability with OBJ, DXF footprint, and OVERHAUL semantic manifest exports
+- Presentation-mode synthetic building and machinery demonstrations that are explicitly labeled as demo data
 
 ## Geometry and BIM/CAD interoperability
 
