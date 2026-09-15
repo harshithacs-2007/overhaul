@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "train:rescast": "python scripts/ml/train_rescast_surrogate.py"
+    "train:rescast": "python scripts/ml/train_rescast_surrogate.py",
+    "train:rescast-timeseries": "python scripts/ml/train_rescast_timeseries_surrogate.py"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
