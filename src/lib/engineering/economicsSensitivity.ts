@@ -19,7 +19,8 @@ export type SensitivityResult = {
   paybackRangeYears: [number | null, number | null];
 };
 
-const finite = (value: number | undefined): value is number => typeof value === "number" && Number.isFinite(value);
+const finite = (value: number | null | undefined): value is number =>
+  typeof value === "number" && Number.isFinite(value);
 
 function vary(context: EconomicsContext, parameter: SensitivityParameter, value: number): EconomicsResult {
   return calculateRetrofitEconomics({ ...context, [parameter.key]: value });
