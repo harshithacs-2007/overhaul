@@ -3,8 +3,8 @@
  *
  * Geometry is derived from supplied dimensions/ratings. No geometry is invented
  * from an image. OBJ is suitable for Blender and DXF is suitable for CAD
- * workflows; the manifest carries the semantic engineering identity and
- * provenance needed to continue the model in BIM/CAD software.
+ * workflows; the manifest preserves semantic engineering identity and
+ * provenance for downstream BIM/IFC integration.
  */
 
 export type InteropScope = "building" | "facility" | "equipment";
@@ -29,7 +29,7 @@ export interface InteropManifest {
   geometryBasis: "parametric-dimensions" | "unresolved";
   engineeringValues: Array<{ key: string; value: number | string; unit?: string }>;
   provenance: Array<{ type: "evidence" | "derived"; id: string; note: string }>;
-  targets: Array<"Blender" | "AutoCAD/DXF" | "BIM/IFC adapter">;
+  targets: Array<"Blender" | "AutoCAD/DXF" | "BIM/IFC-ready manifest">;
 }
 
 function requireDimension(value: number, label: string) {
@@ -98,6 +98,6 @@ export function buildInteropManifest(asset: InteropAsset, values: Record<string,
       ...evidenceIds.map((id) => ({ type: "evidence" as const, id, note: "Source evidence linked to the asset model." })),
       { type: "derived" as const, id: "parametric-geometry", note: geometryResolved ? "Geometry generated from stated dimensions; no image geometry was hallucinated." : "Geometry remains unresolved because required dimensions were not established." },
     ],
-    targets: ["Blender", "AutoCAD/DXF", "BIM/IFC adapter"],
+    targets: ["Blender", "AutoCAD/DXF", "BIM/IFC-ready manifest"],
   };
 }
