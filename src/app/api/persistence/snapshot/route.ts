@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 const MAX_OBSERVATIONS = 500;
 const MAX_EVIDENCE = 20;
+const MAX_SCAN_SECTORS = 12;
 const SCOPES = new Set(["building", "facility", "equipment"]);
 
 function text(value: unknown, fallback = "") {
@@ -16,12 +17,55 @@ function finiteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function sanitizeRoomScan(input: unknown) {
+  if (!input || typeof input !== "object") return null;
+  const scan = input as Record<string, unknown>;
+  const sectors = Array.isArray(scan.sectors) ? scan.sectors.slice(0, MAX_SCAN_SECTORS).map((sector) => {
+    if (!sector || typeof sector !== "object") return null;
+    const row = sector as Record<string, unknown>;
+    const result = row.result && typeof row.result === "object" ? row.result as Record<string, unknown> : {};
+    const detections = Array.isArray(result.detections) ? result.detections.slice(0, 20).map((d) => {
+      if (!d || typeof d !== "object") return null;
+      const item = d as Record<string, unknown>;
+      const box = item.box && typeof item.box === "object" ? item.box as Record<string, unknown> : {};
+      return {
+        label: text(item.label, "Unclassified"),
+        confidence: Math.min(1, Math.max(0, finiteNumber(item.confidence) ?? 0)),
+        condition: text(item.condition),
+        evidence: text(item.evidence),
+        box: {
+          x: finiteNumber(box.x), y: finiteNumber(box.y),
+          width: finiteNumber(box.width), height: finiteNumber(box.height),
+        },
+      };
+    }).filter(Boolean) : [];
+    return {
+      id: text(row.id),
+      sector: finiteNumber(row.sector),
+      result: {
+        summary: text(result.summary),
+        detections,
+        engineering_clues: Array.isArray(result.engineering_clues) ? result.engineering_clues.slice(0, 12).map((x) => text(x)).filter(Boolean) : [],
+        coverage_notes: Array.isArray(result.coverage_notes) ? result.coverage_notes.slice(0, 12).map((x) => text(x)).filter(Boolean) : [],
+      },
+    };
+  }).filter(Boolean) : [];
+  return {
+    scope: text(scan.scope, "building"),
+    coveragePercent: finiteNumber(scan.coveragePercent) ?? 0,
+    completed: Boolean(scan.completed),
+    sectors,
+    updatedAt: text(scan.updatedAt),
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const assessment = body?.assessment;
     const extractions = Array.isArray(body?.extractions) ? body.extractions : [];
     const supplemental = body?.supplemental && typeof body.supplemental === "object" ? body.supplemental : {};
+    const roomScan = sanitizeRoomScan(body?.roomScan);
 
     const scope = text(assessment?.assessmentSubject, "building");
     if (!SCOPES.has(scope)) {
@@ -39,6 +83,7 @@ export async function POST(request: Request) {
           source: "overhaul-web",
           assessment,
           supplemental,
+          roomScan,
           persistedAt: new Date().toISOString(),
         },
       })
@@ -59,9 +104,9 @@ export async function POST(request: Request) {
         project_id: project.id,
         asset_type: scope,
         name: projectName,
-        model: { scope, industry: assessment?.industry, goal: assessment?.assessmentGoal, supplemental },
+        model: { scope, industry: assessment?.industry, goal: assessment?.assessmentGoal, supplemental, roomScanCoveragePercent: roomScan?.coveragePercent ?? null },
         geometry: dimensions,
-        provenance: { source: "assessment-intake", evidenceCount: Array.isArray(assessment?.evidence) ? assessment.evidence.length : 0 },
+        provenance: { source: "assessment-intake", evidenceCount: Array.isArray(assessment?.evidence) ? assessment.evidence.length : 0, roomScanCompleted: roomScan?.completed ?? false },
       })
       .select("id")
       .single();
@@ -122,7 +167,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       projectId: project.id,
       assetId: asset.id,
-      counts: { evidence: insertedEvidence.length, observations: observationRows.length },
+      counts: { evidence: insertedEvidence.length, observations: observationRows.length, roomScanSectors: roomScan?.sectors?.length ?? 0 },
     });
   } catch (error) {
     console.error("OVERHAUL persistence route error", error);
