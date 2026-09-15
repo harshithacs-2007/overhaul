@@ -3,6 +3,7 @@
 import UniversalDecisionWorkspaceV2 from "./UniversalDecisionWorkspaceV2";
 import AssetTwinViewport from "./AssetTwinViewport";
 import LiveTwinStudio from "./LiveTwinStudio";
+import TwinObjectInspector from "./TwinObjectInspector";
 import RetrofitPathfinder from "./RetrofitPathfinder";
 import RetrofitStressLab from "./RetrofitStressLab";
 import DatasetIntelligencePanel from "./DatasetIntelligencePanel";
@@ -102,6 +103,7 @@ export default function AssessmentExperience() {
       {scope === "equipment" ? <MachineRetrofitMatrix assetClass={assessment?.assetClass} values={values}/> : null}
       <RetrofitStressLab scope={scope} values={values} climate={climate}/>
       <LiveTwinStudio scope={scope} title={title} values={values}/>
+      <TwinObjectInspector scan={roomScan} values={values}/>
       <RetrofitIntelligenceSuite scope={scope} values={values} extracts={extracts} climate={climate}/>
       <UniversalDecisionWorkspaceV2 />
       <AssetTwinViewport scope={scope} title={title} assetClass={assetClass} evidenceIds={evidenceIds} values={values}/>
