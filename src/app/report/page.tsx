@@ -1,5 +1,5 @@
-import FinalReportView from "@/components/overhaul/FinalReportView";
+import UniversalReportView from "@/components/overhaul/UniversalReportView";
 
 export default function ReportPage() {
-  return <FinalReportView />;
+  return <UniversalReportView />;
 }
