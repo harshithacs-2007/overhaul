@@ -1,3 +1,0 @@
-import BaselineMvPanel from "./BaselineMvPanel";
-
-export function Integration() { return <BaselineMvPanel />; }
