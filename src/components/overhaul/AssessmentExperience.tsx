@@ -112,7 +112,7 @@ export default function AssessmentExperience() {
 
   return <>
     <div className="mx-auto max-w-[1600px] px-4 pt-4 sm:px-7 lg:px-10">
-      <section className="relative overflow-hidden border border-gold/25 bg-[#080a09] shadow-[0_26px_110px_rgba(0,.28)]">
+      <section className="relative overflow-hidden border border-gold/25 bg-[#080a09] shadow-[0_26px_110px_rgba(0,0,0,.28)]">
         <div className="absolute inset-y-0 right-0 w-[42%] bg-[radial-gradient(circle_at_center,rgba(228,184,96,.10),transparent_64%)]" />
         <div className="relative grid gap-5 p-5 sm:p-7 lg:grid-cols-[1.15fr_.85fr] lg:p-9">
           <div>
