@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "purpose": "Metadata-only inventory of locally held OVERHAUL datasets. Raw files remain outside GitHub.",
+  "root": "Dataset",
+  "datasets": [
+    {"id":"power-point-hourly","name":"POWER Point Hourly 2015-2026","domain":"climate","format":"csv","path":"climate/POWER_Point_Hourly_20150915_20260915_084d64N_0154d33W_LST.csv","extracted":true,"adapter":"tabular.climate"},
+    {"id":"annual-heating-humidification-design-conditions","name":"Annual Heating and Humidification Design Conditions Table","domain":"climate","format":"csv","path":"climate/Annual Heating and Humidification Design Conditions Table.csv","extracted":true,"adapter":"tabular.design-conditions"},
+    {"id":"power-global-zones","name":"POWER Global Zones 2007-2025","domain":"climate","format":"netcdf","path":"climate/POWER_Global_Zones_2007_2025.nc","extracted":true,"adapter":"netcdf.climate"},
+    {"id":"lbnl-rtu","name":"LBNL FDD RTU","domain":"hvac","format":"zip","path":"hvac/LBNL_FDD_Data_Sets_RTU_all_3.zip","extracted":false,"adapter":"lbnl.fdd"},
+    {"id":"lbnl-rtu-duplicate","name":"LBNL FDD RTU archive (second local copy)","domain":"hvac","format":"zip","path":"hvac/LBNL_FDD_Data_Sets_RTU_all__3.zip","extracted":false,"adapter":"lbnl.fdd"},
+    {"id":"lbnl-sdahu","name":"LBNL FDD SDAHU","domain":"hvac","format":"zip","path":"hvac/LBNL_FDD_Data_Sets_SDAHU_all_3.zip","extracted":false,"adapter":"lbnl.fdd"},
+    {"id":"lbnl-fcu","name":"LBNL FDD FCU","domain":"hvac","format":"zip","path":"hvac/LBNL_FDD_Data_Sets_FCU_all_3.zip","extracted":false,"adapter":"lbnl.fdd"},
+    {"id":"lbnl-fcu-archive","name":"LBNL FDD FCU archive (second local copy)","domain":"hvac","format":"zip","path":"hvac/LBNL_FDD_Data_Sets_FCU.zip","extracted":false,"adapter":"lbnl.fdd"},
+    {"id":"lbnl-chiller-plant","name":"LBNL FDD Chiller Plant","domain":"hvac","format":"zip","path":"hvac/LBNL_FDD_Data_Sets_Chiller_Plant_all_3.zip","extracted":false,"adapter":"lbnl.fdd"},
+    {"id":"lbnl-ddahu","name":"LBNL FDD DDAHU","domain":"hvac","format":"zip","path":"hvac/LBNL_FDD_Data_Sets_DDAHU_all_3.zip","extracted":false,"adapter":"lbnl.fdd"},
+    {"id":"lbnl-fcu-documentation","name":"LBNL FDD FCU documentation","domain":"hvac","format":"pdf","path":"hvac/LBNL_FDD_Data_Sets_FCU.pdf","extracted":true,"adapter":"document.manual"},
+    {"id":"rescast-house-features","name":"RESCAST House Features 100k","domain":"buildings","format":"parquet","path":"buildings/house_features_rescast-100k.parquet","extracted":true,"adapter":"tabular.rescast"},
+    {"id":"remdb-2024","name":"REMDB 2024.12.23","domain":"retrofit","format":"xlsx","path":"retrofit/REMDB_2024.12.23.xlsx","extracted":true,"adapter":"tabular.remdb"},
+    {"id":"structured3d","name":"Structured3D","domain":"3d","format":"zip","path":"3d/Structured3D-master.zip","extracted":false,"adapter":"archive.structured3d"},
+    {"id":"objaverse-xl","name":"Objaverse XL","domain":"3d","format":"zip","path":"3d/objaverse-xl-main.zip","extracted":false,"adapter":"archive.objaverse"},
+    {"id":"objaverse-paths","name":"Objaverse object paths","domain":"3d","format":"other","path":"3d/object-paths.json.gz","extracted":true,"adapter":"json-gzip.objaverse"},
+    {"id":"lvis-annotations","name":"LVIS annotations","domain":"3d","format":"other","path":"3d/lvis-annotations.json.gz","extracted":true,"adapter":"json-gzip.lvis"}
+  ],
+  "unclassified": [
+    "unknown/0000.parquet",
+    "unknown/data.parquet",
+    "unknown/data (1).parquet",
+    "unknown/archive.zip",
+    "unknown/archive (1).zip",
+    "unknown/archive (2).zip",
+    "unknown/archive (4).zip",
+    "unknown/archive (5).zip",
+    "unknown/archive (6).zip",
+    "unknown/ScienceDirect_articles_15Sep2026_09-36-32.542.zip"
+  ],
+  "incomplete": [
+    "incomplete/Unconfirmed 141051.crdownload",
+    "incomplete/Unconfirmed 405951.crdownload"
+  ]
+}
