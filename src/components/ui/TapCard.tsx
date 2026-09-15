@@ -51,19 +51,20 @@ export function Chip({
   children,
 }: {
   selected: boolean;
-  onClick: () => void;
+  onClick?: () => void;
   children: ReactNode;
 }) {
   return (
     <motion.button
       type="button"
       onClick={onClick}
-      whileTap={{ scale: 0.96 }}
+      disabled={!onClick}
+      whileTap={onClick ? { scale: 0.96 } : undefined}
       className={`border px-3 py-1.5 text-xs tracking-wide ${
         selected
           ? "border-teal text-teal"
           : "border-steel/30 text-steel hover:border-steel/60"
-      }`}
+      } ${!onClick ? "cursor-default" : ""}`}
     >
       {children}
     </motion.button>
