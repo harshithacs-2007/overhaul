@@ -26,14 +26,17 @@ export interface InteropManifest {
   schema: "overhaul.asset.v1";
   asset: InteropAsset;
   coordinateSystem: "right-handed-z-up";
-  geometryBasis: "parametric-dimensions";
+  geometryBasis: "parametric-dimensions" | "unresolved";
   engineeringValues: Array<{ key: string; value: number | string; unit?: string }>;
   provenance: Array<{ type: "evidence" | "derived"; id: string; note: string }>;
   targets: Array<"Blender" | "AutoCAD/DXF" | "BIM/IFC adapter">;
 }
 
-function safeDimension(value: number, fallback: number) {
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+function requireDimension(value: number, label: string) {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Cannot export geometry: ${label} is unresolved.`);
+  }
+  return value;
 }
 
 function boxObj(name: string, width: number, depth: number, height: number, ox = 0, oy = 0, oz = 0) {
@@ -49,9 +52,9 @@ function boxObj(name: string, width: number, depth: number, height: number, ox =
 }
 
 export function buildAssetObj(asset: InteropAsset): string {
-  const width = safeDimension(asset.widthM, asset.scope === "equipment" ? 1.2 : 10);
-  const depth = safeDimension(asset.depthM, asset.scope === "equipment" ? 0.8 : 8);
-  const height = safeDimension(asset.heightM, asset.scope === "equipment" ? 1.1 : 3);
+  const width = requireDimension(asset.widthM, "width");
+  const depth = requireDimension(asset.depthM, "depth");
+  const height = requireDimension(asset.heightM, "height");
   const parts = [boxObj(asset.className.replace(/\s+/g, "_"), width, depth, height)];
   if (asset.scope !== "equipment") {
     parts.push(boxObj("HVAC_ZONE", Math.max(width * 0.18, 1), Math.max(depth * 0.18, 1), Math.max(height * 0.35, 1), width * 0.41, depth * 0.41, height));
@@ -68,8 +71,8 @@ export function buildAssetObj(asset: InteropAsset): string {
 }
 
 export function buildDxfFootprint(asset: InteropAsset): string {
-  const width = safeDimension(asset.widthM, asset.scope === "equipment" ? 1.2 : 10);
-  const depth = safeDimension(asset.depthM, asset.scope === "equipment" ? 0.8 : 8);
+  const width = requireDimension(asset.widthM, "width");
+  const depth = requireDimension(asset.depthM, "depth");
   const points = [[0, 0], [width, 0], [width, depth], [0, depth], [0, 0]];
   const entities = points.slice(0, -1).map((p, i) => {
     const q = points[i + 1];
@@ -79,6 +82,7 @@ export function buildDxfFootprint(asset: InteropAsset): string {
 }
 
 export function buildInteropManifest(asset: InteropAsset, values: Record<string, number | string | null | undefined>): InteropManifest {
+  const geometryResolved = [asset.widthM, asset.depthM, asset.heightM].every((x) => Number.isFinite(x) && x > 0);
   const engineeringValues = Object.entries(values)
     .filter(([, value]) => value != null && value !== "")
     .map(([key, value]) => ({ key, value: value as number | string }))
@@ -86,13 +90,13 @@ export function buildInteropManifest(asset: InteropAsset, values: Record<string,
   const evidenceIds = asset.evidenceIds ?? [];
   return {
     schema: "overhaul.asset.v1",
-    asset: { ...asset, widthM: safeDimension(asset.widthM, 1), depthM: safeDimension(asset.depthM, 1), heightM: safeDimension(asset.heightM, 1) },
+    asset,
     coordinateSystem: "right-handed-z-up",
-    geometryBasis: "parametric-dimensions",
+    geometryBasis: geometryResolved ? "parametric-dimensions" : "unresolved",
     engineeringValues,
     provenance: [
       ...evidenceIds.map((id) => ({ type: "evidence" as const, id, note: "Source evidence linked to the asset model." })),
-      { type: "derived" as const, id: "parametric-geometry", note: "Geometry generated from stated dimensions; no image geometry was hallucinated." },
+      { type: "derived" as const, id: "parametric-geometry", note: geometryResolved ? "Geometry generated from stated dimensions; no image geometry was hallucinated." : "Geometry remains unresolved because required dimensions were not established." },
     ],
     targets: ["Blender", "AutoCAD/DXF", "BIM/IFC adapter"],
   };
