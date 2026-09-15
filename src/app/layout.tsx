@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Inter, IBM_Plex_Mono } from "next/font/google";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { EvidencePerceptionBridge } from "@/components/evidence/EvidencePerceptionBridge";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -25,7 +26,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Overhaul — Retrofit Decision Engine",
   description:
-    "Deterministic physics-based ranking of envelope and HVAC retrofit actions. No ML.",
+    "Evidence-first retrofit intelligence combining AI perception with deterministic engineering validation.",
 };
 
 export default function RootLayout({
@@ -39,7 +40,10 @@ export default function RootLayout({
       className={`${fraunces.variable} ${inter.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="blueprint-grid min-h-full flex flex-col bg-navy text-paper">
-        <ErrorBoundary>{children}</ErrorBoundary>
+        <ErrorBoundary>
+          {children}
+          <EvidencePerceptionBridge />
+        </ErrorBoundary>
       </body>
     </html>
   );
