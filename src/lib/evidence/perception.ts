@@ -135,16 +135,20 @@ export function buildEvidencePerceptionPlan(
   const requirements = fieldsForSubject(subject);
   const items = evidence.map((item) => {
     const matchingKinds = requirements.filter((field) => field.evidenceKinds.includes(item.kind));
+    const priority: "high" | "medium" | "low" = matchingKinds.some(
+      (field) => field.key.includes("model") || field.key.includes("capacity"),
+    )
+      ? "high"
+      : matchingKinds.length
+        ? "medium"
+        : "low";
+
     return {
       evidenceId: item.id,
       evidenceName: item.name,
       mode: modeForKind(item.kind, item.type),
       extract: [...new Set(matchingKinds.map((field) => field.key))],
-      priority: matchingKinds.some((field) => field.key.includes("model") || field.key.includes("capacity"))
-        ? "high"
-        : matchingKinds.length
-          ? "medium"
-          : "low",
+      priority,
     };
   });
 
