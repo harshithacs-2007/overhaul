@@ -6,9 +6,12 @@ import LiveTwinStudio from "./LiveTwinStudio";
 import RetrofitPathfinder from "./RetrofitPathfinder";
 import RetrofitStressLab from "./RetrofitStressLab";
 import DatasetIntelligencePanel from "./DatasetIntelligencePanel";
+import DatasetPhysicsBridgePanel from "./DatasetPhysicsBridgePanel";
 import ModelEvidencePanel from "./ModelEvidencePanel";
 import DigitalTwinConsole from "./DigitalTwinConsole";
 import DecisionProvenancePanel from "./DecisionProvenancePanel";
+import RetrofitIntelligenceSuite from "./RetrofitIntelligenceSuite";
+import MachineRetrofitMatrix from "./MachineRetrofitMatrix";
 import { useEffect, useMemo, useState } from "react";
 
 type Scope = "building" | "facility" | "equipment";
@@ -89,14 +92,17 @@ export default function AssessmentExperience() {
         <div className="absolute inset-y-0 right-0 w-[42%] bg-[radial-gradient(circle_at_center,rgba(228,184,96,.10),transparent_64%)]" />
         <div className="relative grid gap-5 p-5 sm:p-7 lg:grid-cols-[1.15fr_.85fr] lg:p-9"><div><p className="font-mono text-[8px] uppercase tracking-[0.22em] text-gold">Retrofit command center</p><h1 className="mt-2 max-w-3xl font-display text-4xl leading-[0.95] sm:text-5xl">Find the retrofit.<br/>Know the consequence.</h1><p className="mt-4 max-w-2xl text-[10px] leading-5 text-steel">OVERHAUL uses the evidence you provide to establish a defensible baseline, expose retrofit pathways, and calculate the consequences of an intervention before you commit money, downtime, or equipment changes.</p><div className="mt-5 flex flex-wrap gap-2 font-mono text-[7px] uppercase tracking-[0.12em]"><span className="border border-teal/25 bg-teal/[0.04] px-3 py-2 text-teal">Evidence-bound</span><span className="border border-steel/15 px-3 py-2 text-steel">Physics-backed</span><span className="border border-steel/15 px-3 py-2 text-steel">Counterfactual</span><span className="border border-steel/15 px-3 py-2 text-steel">Verify after implementation</span></div></div><div className="grid content-end gap-2 sm:grid-cols-3 lg:grid-cols-1"><Signal label="Scope" value={assetClass}/><Signal label="Evidence" value={extracts.length ? `${extracts.length} source${extracts.length === 1 ? "" : "s"} analyzed` : "Awaiting evidence"}/><Signal label="Engineering state" value={Object.keys(values).length ? `${Object.keys(values).length} values established` : "Not established"}/></div></div>
       </section>
-      <p className="px-1 py-3 font-mono text-[7px] uppercase tracking-[0.16em] text-steel">Decision order · retrofit first · engineering workspace retained below for diagnosis, simulation, provenance and verification</p>
+      <p className="px-1 py-3 font-mono text-[7px] uppercase tracking-[0.16em] text-steel">Decision order · evidence → model → diagnose → retrofit → counterfactual → decide → verify</p>
     </div>
     <div className="mx-auto max-w-[1600px] space-y-5 px-4 pb-12 sm:px-7 lg:px-10">
       <DatasetIntelligencePanel extracts={extracts}/>
+      <DatasetPhysicsBridgePanel extracts={extracts} values={values}/>
       <ModelEvidencePanel />
       <RetrofitPathfinder scope={scope} values={values}/>
+      {scope === "equipment" ? <MachineRetrofitMatrix assetClass={assessment?.assetClass} values={values}/> : null}
       <RetrofitStressLab scope={scope} values={values} climate={climate}/>
       <LiveTwinStudio scope={scope} title={title} values={values}/>
+      <RetrofitIntelligenceSuite scope={scope} values={values} extracts={extracts} climate={climate}/>
       <UniversalDecisionWorkspaceV2 />
       <AssetTwinViewport scope={scope} title={title} assetClass={assetClass} evidenceIds={evidenceIds} values={values}/>
       <DigitalTwinConsole scope={scope} values={values}/>
