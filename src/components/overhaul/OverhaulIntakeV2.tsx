@@ -8,7 +8,7 @@ import { normalizeExtractionObservations } from "@/lib/evidence/normalizeForEngi
 type Scope = "building" | "facility" | "equipment";
 type Goal = "energy" | "performance" | "comfort" | "reliability" | "retrofit";
 type Industry = "residential" | "commercial" | "healthcare" | "hospitality" | "education" | "retail" | "industrial" | "warehouse" | "cold_storage" | "data_center" | "campus" | "other";
-type EvidenceKind = "scan" | "photo" | "document";
+type EvidenceKind = "scan" | "photo" | "document" | "dataset";
 
 type EvidenceItem = {
   id: string;
@@ -35,6 +35,7 @@ function uid() { return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}
 function inferKind(file: File): EvidenceKind {
   const name = file.name.toLowerCase();
   if (name.includes("scan") || name.includes("capture")) return "scan";
+  if (/\.(csv|tsv|json)$/.test(name) || /^(text\/(csv|tab-separated-values)|application\/json)$/.test(file.type)) return "dataset";
   return file.type === "application/pdf" ? "document" : "photo";
 }
 
@@ -245,7 +246,7 @@ export default function OverhaulIntakeV2() {
                         <p className="mt-4 font-display text-2xl">Drop anything useful.</p>
                         <p className="mt-2 text-[10px] leading-5 text-steel">You don't need to know the engineering parameters. OVERHAUL extracts what the evidence actually establishes, records where it came from, and asks only for information that can change the result.</p>
                         <div className="mt-5 flex flex-wrap justify-center gap-2"><button type="button" onClick={() => fileInput.current?.click()} className="border border-paper/30 bg-paper px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-navy">Upload evidence</button><button type="button" onClick={openCamera} className="border border-teal/40 px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-teal">Use camera</button><button type="button" onClick={() => document.querySelector<HTMLButtonElement>("button[data-room-scan]")?.click()} className="border border-steel/25 px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-steel hover:text-paper">{scanLabel}</button></div>
-                        <p className="mt-3 font-mono text-[7px] uppercase tracking-[0.1em] text-steel">Up to 8 artifacts · 25 MB each · images + PDF</p>
+                        <p className="mt-3 font-mono text-[7px] uppercase tracking-[0.1em] text-steel">Up to 8 artifacts · 25 MB each · images + PDF + CSV / TSV / JSON</p>
                       </div>
                     </div>
 
@@ -254,7 +255,7 @@ export default function OverhaulIntakeV2() {
                       <div className="mt-3 flex-1 space-y-2 overflow-auto pr-1">
                         {evidence.length ? evidence.map((item, index) => (
                           <div key={item.id} className="flex gap-3 border border-steel/10 bg-[#080b0b] p-2.5">
-                            {item.previewUrl ? <img src={item.previewUrl} alt="Evidence preview" className="h-14 w-18 shrink-0 object-cover" /> : <div className="grid h-14 w-18 shrink-0 place-items-center bg-steel/[0.05] font-mono text-[7px] text-steel">{item.type === "application/pdf" ? "PDF" : "FILE"}</div>}
+                            {item.previewUrl ? <img src={item.previewUrl} alt="Evidence preview" className="h-14 w-18 shrink-0 object-cover" /> : <div className="grid h-14 w-18 shrink-0 place-items-center bg-steel/[0.05] font-mono text-[7px] text-steel">{item.kind === "dataset" ? "DATA" : item.type === "application/pdf" ? "PDF" : "FILE"}</div>}
                             <div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><p className="truncate text-[9px]">{item.name}</p><span className="font-mono text-[7px] text-steel">0{index + 1}</span></div><p className="mt-1 font-mono text-[7px] uppercase text-steel">{item.kind} · evidence only</p><button type="button" onClick={() => removeEvidence(item.id)} className="mt-2 font-mono text-[7px] uppercase text-clay">Remove</button></div>
                           </div>
                         )) : <div className="grid h-full place-items-center text-center"><div><p className="text-sm text-steel">Nothing captured yet.</p><p className="mt-1 text-[9px] leading-4 text-steel/70">A single nameplate photo or energy bill is enough to begin.</p></div></div>}
@@ -295,7 +296,7 @@ export default function OverhaulIntakeV2() {
               </aside>
             </div>
           </div>
-          <input ref={fileInput} type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => { addFiles(null, Array.from(e.target.files ?? [])); e.currentTarget.value = ""; }} />
+          <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.csv,.tsv,.json" className="hidden" onChange={(e) => { addFiles(null, Array.from(e.target.files ?? [])); e.currentTarget.value = ""; }} />
         </section>
       </div>
     </main>
