@@ -1,4 +1,5 @@
 export type MachineClass =
+  | "air_conditioner"
   | "chiller"
   | "compressor"
   | "pump"
@@ -27,6 +28,10 @@ export type MachinePathway = {
 };
 
 const PATHWAYS: Record<MachineClass, MachinePathway[]> = {
+  air_conditioner: [
+    { id: "ac-efficiency", title: "AC efficiency / COP upgrade", mechanism: "Reduce electrical input for the same established cooling duty using an explicit COP/EER or efficiency target.", required: ["efficiency", "capacity"], optional: ["runtime", "temperature"], expectedTargets: ["COP/EER", "input power"] },
+    { id: "ac-runtime", title: "AC controls / runtime optimisation", mechanism: "Reduce unnecessary runtime only when operating hours and the controlled schedule are evidenced.", required: ["capacity", "runtime"], optional: ["efficiency", "temperature"], expectedTargets: ["runtime hours", "setpoint", "load fraction"] },
+  ],
   chiller: [
     { id: "chiller-efficiency", title: "Chiller efficiency upgrade", mechanism: "Reduce electrical input for the same cooling duty using an explicit COP/EER target.", required: ["efficiency", "capacity"], optional: ["runtime", "temperature"], expectedTargets: ["COP/EER", "kW/RT if explicitly supplied"] },
     { id: "chiller-sequencing", title: "Chiller staging & sequencing", mechanism: "Shift duty across units using measured load, runtime and part-load evidence rather than assumed savings.", required: ["capacity", "runtime"], optional: ["efficiency", "temperature"], expectedTargets: ["runtime hours", "load fraction", "plant sequence"] },
@@ -66,8 +71,11 @@ const PATHWAYS: Record<MachineClass, MachinePathway[]> = {
 };
 
 const ALIASES: Record<string, MachineClass> = {
-  ac: "chiller",
-  air_conditioner: "chiller",
+  ac: "air_conditioner",
+  air_conditioner: "air_conditioner",
+  airconditioning: "air_conditioner",
+  air_conditioning: "air_conditioner",
+  hvac: "air_conditioner",
   chiller: "chiller",
   centrifugal_chiller: "chiller",
   screw_chiller: "chiller",
@@ -92,6 +100,7 @@ const ALIASES: Record<string, MachineClass> = {
 export function normalizeMachineClass(value: string | null | undefined): MachineClass {
   const key = String(value || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (ALIASES[key]) return ALIASES[key];
+  if (key.includes("air_condition") || key === "ac") return "air_conditioner";
   if (key.includes("chiller")) return "chiller";
   if (key.includes("compressor")) return "compressor";
   if (key.includes("pump")) return "pump";
