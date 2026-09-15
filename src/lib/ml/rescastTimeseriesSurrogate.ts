@@ -34,8 +34,8 @@ export function loadRescastTimeseriesModel(value: unknown): boolean {
   if (candidate.featureMean.length !== candidate.featureNames.length || candidate.featureScale.length !== candidate.featureNames.length || candidate.coefficients.length !== candidate.featureNames.length) return false;
   if (!candidate.testMetrics || !candidate.meanBaselineTestMetrics) return false;
   if (!Number.isFinite(candidate.testMetrics.r2) || !Number.isFinite(candidate.testMetrics.mae) || !Number.isFinite(candidate.meanBaselineTestMetrics.mae)) return false;
-  if (![candidate.intercept, candidate.selectedAlpha, candidate.trainRows, candidate.validationRows, candidate.testRows, candidate.sampleRows].every((value) => Number.isFinite(Number(value)))) return false;
-  if (!candidate.featureMean.concat(candidate.featureScale, candidate.coefficients).every((value) => Number.isFinite(value))) return false;
+  if (![candidate.intercept, candidate.selectedAlpha, candidate.trainRows, candidate.validationRows, candidate.testRows, candidate.sampleRows].every((entry) => Number.isFinite(Number(entry)))) return false;
+  if (!candidate.featureMean.concat(candidate.featureScale, candidate.coefficients).every((entry) => Number.isFinite(entry))) return false;
   model = candidate as RescastTimeseriesArtifact;
   return true;
 }
@@ -46,13 +46,14 @@ export function rescastTimeseriesStatus(): ModelReadyStatus | ModelMissingStatus
 }
 
 export function predictRescastTimeseries(features: Record<string, number>) {
-  if (!model) return null;
+  const activeModel = model;
+  if (!activeModel) return null;
   let missingFeatures = 0;
-  const vector = model.featureNames.map((name, index) => {
+  const vector = activeModel.featureNames.map((name, index) => {
     const raw = Number(features[name]);
     if (!Number.isFinite(raw)) { missingFeatures += 1; return 0; }
-    return (raw - model.featureMean[index]) / (model.featureScale[index] || 1);
+    return (raw - activeModel.featureMean[index]) / (activeModel.featureScale[index] || 1);
   });
-  const value = model.intercept + model.coefficients.reduce((sum, coefficient, index) => sum + coefficient * vector[index], 0);
-  return { value, target: model.target, targetUnit: model.targetUnit, missingFeatures, screeningOnly: true, testR2: model.testMetrics.r2, trainingDataset: model.trainingDataset, authority: model.engineeringAuthority };
+  const value = activeModel.intercept + activeModel.coefficients.reduce((sum, coefficient, index) => sum + coefficient * vector[index], 0);
+  return { value, target: activeModel.target, targetUnit: activeModel.targetUnit, missingFeatures, screeningOnly: true, testR2: activeModel.testMetrics.r2, trainingDataset: activeModel.trainingDataset, authority: activeModel.engineeringAuthority };
 }
