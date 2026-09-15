@@ -2,11 +2,27 @@
 
 import UniversalDecisionWorkspaceV2 from "./UniversalDecisionWorkspaceV2";
 import AssetTwinViewport from "./AssetTwinViewport";
+import DigitalTwinConsole from "./DigitalTwinConsole";
+import DecisionProvenancePanel from "./DecisionProvenancePanel";
 import { useEffect, useMemo, useState } from "react";
 
 type Scope = "building" | "facility" | "equipment";
-type Assessment = { assessmentSubject?: Scope; siteName?: string | null; assetClass?: string | null; evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }> };
-type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number }>; model?: string; sourceKind?: string; sourceName?: string };
+type Assessment = {
+  assessmentSubject?: Scope;
+  siteName?: string | null;
+  assetClass?: string | null;
+  industry?: string;
+  assessmentGoal?: string;
+  evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }>;
+};
+type Extraction = {
+  evidenceId?: string;
+  observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number; sourceText?: string }>;
+  model?: string;
+  sourceKind?: string;
+  sourceName?: string;
+  evidenceType?: string;
+};
 type Values = Record<string, number | string | null>;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -30,9 +46,11 @@ export default function AssessmentExperience() {
     };
     sync();
     window.addEventListener("overhaul:supplemental-change", sync);
+    window.addEventListener("overhaul:evidence-change", sync);
     window.addEventListener("storage", sync);
     return () => {
       window.removeEventListener("overhaul:supplemental-change", sync);
+      window.removeEventListener("overhaul:evidence-change", sync);
       window.removeEventListener("storage", sync);
     };
   }, []);
@@ -83,8 +101,10 @@ export default function AssessmentExperience() {
 
   return <>
     <UniversalDecisionWorkspaceV2 />
-    <div className="mx-auto max-w-[1600px] px-4 pb-10 sm:px-7 lg:px-10">
+    <div className="mx-auto max-w-[1600px] space-y-5 px-4 pb-12 sm:px-7 lg:px-10">
       <AssetTwinViewport scope={scope} title={title} assetClass={assetClass} evidenceIds={evidenceIds} values={values} />
+      <DigitalTwinConsole scope={scope} values={values} />
+      <DecisionProvenancePanel scope={scope} label={title} extracts={extracts} />
     </div>
   </>;
 }
