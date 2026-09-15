@@ -9,6 +9,12 @@ import {
   type ExpectedEquipmentSignal,
   type EquipmentSignalKey,
 } from "@/lib/engineering/equipmentTwin";
+import {
+  evaluatePerformanceCurve,
+  parseReferencePowerCurve,
+  residualToCurve,
+  type PerformanceCurve,
+} from "@/lib/engineering/equipmentPerformanceCurve";
 
 type RawObservation = {
   field: string;
@@ -70,6 +76,17 @@ function num(observations: EquipmentObservation[], key: EquipmentSignalKey) {
   return hit?.value ?? null;
 }
 
+function findLoadFraction(observations: RawObservation[]): number | null {
+  for (const observation of observations) {
+    if (observation.numericValue == null || !Number.isFinite(observation.numericValue)) continue;
+    const field = observation.field.toLowerCase();
+    if (!(field.includes("load") || field.includes("part load") || field.includes("part_load"))) continue;
+    if (field.includes("fraction")) return observation.numericValue <= 1 ? observation.numericValue : observation.numericValue / 100;
+    if (field.includes("percent") || field.includes("%")) return observation.numericValue / 100;
+  }
+  return null;
+}
+
 export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: Props) {
   const [phase, setPhase] = useState<"capture" | "model" | "compare">("capture");
   const flat = useMemo(() => extracts.flatMap((x) => x.observations ?? []), [extracts]);
@@ -80,23 +97,42 @@ export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: 
   }), [flat]);
   const equipmentClass = detectClass(assetClass, flat);
 
+  const performanceCurve = useMemo<PerformanceCurve | null>(() => parseReferencePowerCurve(flat), [flat]);
+  const loadFraction = useMemo(() => findLoadFraction(flat), [flat]);
+  const curveEvaluation = useMemo(
+    () => performanceCurve && loadFraction != null ? evaluatePerformanceCurve(performanceCurve, loadFraction) : null,
+    [performanceCurve, loadFraction],
+  );
+
   const expected = useMemo<ExpectedEquipmentSignal[]>(() => {
+    if (curveEvaluation?.expectedPowerKw != null) {
+      return [{
+        key: "power_kw",
+        expected: curveEvaluation.expectedPowerKw,
+        unit: "kW",
+        toleranceRelative: performanceCurve?.toleranceRelative ?? 0.1,
+        reference: {
+          source: performanceCurve?.source ?? "manufacturer",
+          basis: performanceCurve?.basis ?? "multi-point performance curve",
+        },
+      }];
+    }
+
     const ratedCapacity = num(observations, "capacity_kw");
     const expectedEfficiency = num(observations, "efficiency");
     const reference = { source: "manufacturer" as const, basis: "validated rated operating reference supplied with evidence" };
     if (ratedCapacity != null && expectedEfficiency != null && ratedCapacity > 0 && expectedEfficiency > 0) {
       return [{ key: "power_kw", expected: ratedCapacity / expectedEfficiency, unit: "kW", toleranceRelative: 0.1, reference }];
     }
-    const explicitExpectedPower = num(observations, "power_kw_expected" as EquipmentSignalKey);
-    if (explicitExpectedPower != null && explicitExpectedPower > 0) {
-      return [{ key: "power_kw", expected: explicitExpectedPower, unit: "kW", toleranceRelative: 0.1, reference }];
-    }
     return [];
-  }, [observations]);
+  }, [curveEvaluation, performanceCurve, observations]);
 
   const result = useMemo(() => buildEquipmentTwin({ equipmentClass, observations, expected }), [equipmentClass, observations, expected]);
   const currentPower = num(observations, "power_kw");
   const currentCapacity = num(observations, "capacity_kw");
+  const curveResidual = currentPower != null && curveEvaluation?.expectedPowerKw != null
+    ? residualToCurve(currentPower, curveEvaluation.expectedPowerKw)
+    : null;
 
   const exportSpec = () => {
     const payload = {
@@ -106,6 +142,7 @@ export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: 
       confidence: flat.length ? Math.round(flat.reduce((s, o) => s + o.confidence, 0) / flat.length * 100) : 0,
       signals: Object.fromEntries(observations.map((o) => [o.key, { value: o.value, unit: o.unit, confidence: o.confidence }])),
       performanceTwin: result.expected.map((x) => ({ key: x.key, expected: x.expected, unit: x.unit, toleranceRelative: x.toleranceRelative, reference: x.reference })),
+      performanceCurve: performanceCurve ?? null,
       blender: { generator: "scripts/blender/generate_equipment_twin.py", editable: true },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -160,10 +197,42 @@ export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: 
           </div>
           <div className="border border-clay/25 bg-clay/5 p-4">
             <p className="font-mono text-[8px] uppercase text-clay">Evidence gate</p>
-            <p className="mt-2 text-xs leading-5">{expected.length ? "Independent reference available for comparison." : "Take a clear nameplate/performance-sheet photo or provide a validated operating reference before OVERHAUL claims degradation."}</p>
+            <p className="mt-2 text-xs leading-5">{performanceCurve ? `Reference performance curve loaded from ${performanceCurve.source} evidence.` : expected.length ? "Independent reference available for comparison." : "Take a clear nameplate/performance-sheet photo or provide a validated operating reference before OVERHAUL claims degradation."}</p>
           </div>
         </div>
       </div>
+
+      {performanceCurve ? (
+        <div className="mt-4 border border-teal/20 p-4 sm:p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-teal">Part-load performance curve</p>
+              <p className="mt-1 text-xs text-steel">Expected input power is interpolated only between explicit reference points.</p>
+            </div>
+            <p className="font-mono text-[9px] uppercase text-steel">source · {performanceCurve.source}</p>
+          </div>
+          <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-6">
+            {performanceCurve.points.map((point) => {
+              const peak = Math.max(...performanceCurve.points.map((p) => p.inputPowerKw ?? 0), 1);
+              const width = ((point.inputPowerKw ?? 0) / peak) * 100;
+              return (
+                <div key={`${point.loadFraction}-${point.inputPowerKw}`} className="border border-steel/15 p-2">
+                  <p className="font-mono text-[8px] uppercase text-steel">{Math.round(point.loadFraction * 100)}% load</p>
+                  <div className="mt-2 h-12 border border-steel/10 p-1">
+                    <div className="h-full bg-teal/30" style={{ width: `${width}%` }} />
+                  </div>
+                  <p className="mt-1 font-mono text-[9px] text-paper">{point.inputPowerKw?.toFixed(1) ?? "—"} kW</p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <Stat label="Observed load" value={loadFraction != null ? `${(loadFraction * 100).toFixed(0)}%` : "Evidence needed"} />
+            <Stat label="Curve expectation" value={curveEvaluation?.expectedPowerKw != null ? `${curveEvaluation.expectedPowerKw.toFixed(1)} kW` : "Cannot evaluate"} />
+            <Stat label="Curve residual" value={curveResidual != null ? `${(curveResidual * 100).toFixed(1)}%` : "Cannot compare"} />
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         {result.residuals.length ? result.residuals.map((r) => {
