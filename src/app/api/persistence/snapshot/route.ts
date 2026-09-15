@@ -151,7 +151,7 @@ export async function POST(request: Request) {
     if (existingProjectId) {
       const { error: projectError } = await supabase.from("projects").update({ name: projectName, scope, metadata }).eq("id", existingProjectId);
       if (projectError) throw projectError;
-      let assetId = existingAssetId;
+      const assetId = existingAssetId;
       if (assetId) {
         const dimensions = { width: finiteNumber(supplemental.width_m ?? supplemental.width), depth: finiteNumber(supplemental.depth_m ?? supplemental.depth), height: finiteNumber(supplemental.height_m ?? supplemental.height) };
         const { error: assetError } = await supabase.from("assets").update({ asset_type: scope, name: projectName, model: { scope, industry: assessment?.industry, goal: assessment?.assessmentGoal, supplemental, roomScanCoveragePercent: roomScan?.coveragePercent ?? null, climate }, geometry: dimensions, provenance: { source: "assessment-intake", evidenceCount: Array.isArray(assessment?.evidence) ? assessment.evidence.length : 0, roomScanCompleted: roomScan?.completed ?? false, climateContext: climate ? "regional-weather-context" : "not-resolved" } }).eq("id", assetId).eq("project_id", existingProjectId);
