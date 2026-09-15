@@ -82,31 +82,51 @@ export async function POST(request: Request) {
     const supplemental = body?.supplemental && typeof body.supplemental === "object" ? body.supplemental : {};
     const roomScan = sanitizeRoomScan(body?.roomScan);
     const climate = sanitizeClimate(body?.climate);
+    const existingProjectId = text(body?.projectId) || null;
+    const existingAssetId = text(body?.assetId) || null;
 
     const scope = text(assessment?.assessmentSubject, "building");
-    if (!SCOPES.has(scope)) {
-      return NextResponse.json({ error: "Invalid assessment scope." }, { status: 400 });
-    }
+    if (!SCOPES.has(scope)) return NextResponse.json({ error: "Invalid assessment scope." }, { status: 400 });
 
     const supabase = getSupabaseAdmin();
     const projectName = text(assessment?.siteName) || text(assessment?.assetClass) || `${scope} assessment`;
+    const metadata = {
+      source: "overhaul-web",
+      assessment,
+      supplemental,
+      roomScan,
+      climate,
+      persistedAt: new Date().toISOString(),
+    };
+
+    if (existingProjectId) {
+      const { error: projectError } = await supabase.from("projects").update({ name: projectName, scope, metadata }).eq("id", existingProjectId);
+      if (projectError) throw projectError;
+
+      if (existingAssetId) {
+        const dimensions = {
+          width: finiteNumber(supplemental.width_m ?? supplemental.width),
+          depth: finiteNumber(supplemental.depth_m ?? supplemental.depth),
+          height: finiteNumber(supplemental.height_m ?? supplemental.height),
+        };
+        const { error: assetError } = await supabase.from("assets").update({
+          asset_type: scope,
+          name: projectName,
+          model: { scope, industry: assessment?.industry, goal: assessment?.assessmentGoal, supplemental, roomScanCoveragePercent: roomScan?.coveragePercent ?? null, climate },
+          geometry: dimensions,
+          provenance: { source: "assessment-intake", evidenceCount: Array.isArray(assessment?.evidence) ? assessment.evidence.length : 0, roomScanCompleted: roomScan?.completed ?? false, climateContext: climate ? "regional-weather-context" : "not-resolved" },
+        }).eq("id", existingAssetId).eq("project_id", existingProjectId);
+        if (assetError) throw assetError;
+      }
+
+      return NextResponse.json({ projectId: existingProjectId, assetId: existingAssetId, updated: true, counts: { evidence: 0, observations: 0, roomScanSectors: roomScan?.sectors?.length ?? 0 } });
+    }
+
     const { data: project, error: projectError } = await supabase
       .from("projects")
-      .insert({
-        name: projectName,
-        scope,
-        metadata: {
-          source: "overhaul-web",
-          assessment,
-          supplemental,
-          roomScan,
-          climate,
-          persistedAt: new Date().toISOString(),
-        },
-      })
+      .insert({ name: projectName, scope, metadata })
       .select("id")
       .single();
-
     if (projectError || !project) throw projectError || new Error("Project creation failed.");
 
     const dimensions = {
@@ -127,20 +147,19 @@ export async function POST(request: Request) {
       })
       .select("id")
       .single();
-
     if (assetError || !asset) throw assetError || new Error("Asset creation failed.");
 
     const evidenceItems = Array.isArray(assessment?.evidence) ? assessment.evidence.slice(0, MAX_EVIDENCE) : [];
-    const evidenceRows = evidenceItems.map((item: any) => ({
+    const evidenceRows = evidenceItems.map((item: Record<string, unknown>) => ({
       project_id: project.id,
       asset_id: asset.id,
-      kind: ["scan", "photo", "document"].includes(item?.kind) ? item.kind : "other",
+      kind: ["scan", "photo", "document"].includes(text(item?.kind)) ? text(item?.kind) : "other",
       name: text(item?.name, "Evidence"),
       source_ref: text(item?.id) || null,
       metadata: { mimeType: text(item?.type), size: finiteNumber(item?.size) },
     }));
 
-    let insertedEvidence: any[] = [];
+    let insertedEvidence: Array<{ id: string; source_ref: string | null }> = [];
     if (evidenceRows.length) {
       const result = await supabase.from("evidence").insert(evidenceRows).select("id, source_ref");
       if (result.error) throw result.error;
@@ -148,29 +167,30 @@ export async function POST(request: Request) {
     }
 
     const evidenceIdByClientId = new Map(insertedEvidence.map((row) => [row.source_ref, row.id]));
-    const observationRows: any[] = [];
-
+    const observationRows: Array<Record<string, unknown>> = [];
     for (const extraction of extractions.slice(0, MAX_EVIDENCE)) {
-      const evidenceId = evidenceIdByClientId.get(text(extraction?.evidenceId));
-      const observations = Array.isArray(extraction?.observations) ? extraction.observations : [];
+      const extractionRow = extraction as Record<string, unknown>;
+      const evidenceId = evidenceIdByClientId.get(text(extractionRow?.evidenceId));
+      const observations = Array.isArray(extractionRow?.observations) ? extractionRow.observations : [];
       for (const observation of observations) {
         if (observationRows.length >= MAX_OBSERVATIONS) break;
-        const numericValue = finiteNumber(observation?.numericValue);
+        const item = observation as Record<string, unknown>;
+        const numericValue = finiteNumber(item?.numericValue);
         observationRows.push({
           project_id: project.id,
           asset_id: asset.id,
           evidence_id: evidenceId || null,
-          field: text(observation?.field, "unknown").slice(0, 120),
+          field: text(item?.field, "unknown").slice(0, 120),
           value_numeric: numericValue,
-          value_text: text(observation?.value).slice(0, 500) || null,
-          unit: text(observation?.unit).slice(0, 40) || null,
-          confidence: Math.min(1, Math.max(0, finiteNumber(observation?.confidence) ?? 0)),
-          source_type: text(extraction?.sourceKind, "evidence"),
+          value_text: text(item?.value).slice(0, 500) || null,
+          unit: text(item?.unit).slice(0, 40) || null,
+          confidence: Math.min(1, Math.max(0, finiteNumber(item?.confidence) ?? 0)),
+          source_type: text(extractionRow?.sourceKind, "evidence"),
           provenance: {
-            extractionModel: text(extraction?.model),
-            sourceName: text(extraction?.sourceName),
-            sourceText: text(observation?.sourceText),
-            notes: text(observation?.notes),
+            extractionModel: text(extractionRow?.model),
+            sourceName: text(extractionRow?.sourceName),
+            sourceText: text(item?.sourceText),
+            notes: text(item?.notes),
           },
         });
       }
@@ -184,6 +204,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       projectId: project.id,
       assetId: asset.id,
+      updated: false,
       counts: { evidence: insertedEvidence.length, observations: observationRows.length, roomScanSectors: roomScan?.sectors?.length ?? 0 },
     });
   } catch (error) {
