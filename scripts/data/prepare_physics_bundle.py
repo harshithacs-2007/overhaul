@@ -1,13 +1,9 @@
-"""Create a small normalized JSON bundle for OVERHAUL's engineering API.
+"""Create a small validated JSON bundle for OVERHAUL's engineering API.
 
-Usage:
-  python scripts/data/prepare_physics_bundle.py \
-    --input <normalized-json-or-jsonl> \
-    --output overhaul_physics_bundle.json \
-    --subject equipment
-
-The raw dataset stays on the user's machine. Only the selected normalized
-records are exported for upload/demo use.
+The raw dataset stays on the user's machine. Only records that already expose
+verified engineering quantities are eligible for a physics bundle. Static
+RESCAST housing-option codes are intentionally not promoted into quantities
+such as m², kW, COP, or hours without a verified mapping/codebook.
 """
 
 from __future__ import annotations
@@ -51,7 +47,10 @@ def score(record: dict[str, Any], subject: str) -> int:
             ["hvacCapacityKW", "hvac_capacity_kw", "rated_capacity_kw", "capacity_kw"],
             ["hvacCOP", "hvac_cop", "cop"],
         ]
-    return sum(any(isinstance(variables.get(key), (int, float)) for key in group) for group in groups)
+    return sum(
+        any(isinstance(variables.get(key), (int, float)) for key in group)
+        for group in groups
+    )
 
 
 def main() -> None:
@@ -62,19 +61,37 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=100)
     args = parser.parse_args()
 
-    records = load_records(args.input)
-    records = [r for r in records if isinstance(r, dict)]
-    records.sort(key=lambda r: score(r, args.subject), reverse=True)
-    selected = records[: max(1, min(args.limit, len(records)))]
+    records = [record for record in load_records(args.input) if isinstance(record, dict)]
+    if not records:
+        raise SystemExit("No normalized records found.")
 
+    ranked = sorted(
+        ((score(record, args.subject), index, record) for index, record in enumerate(records)),
+        key=lambda item: (-item[0], item[1]),
+    )
+
+    best_score = ranked[0][0]
+    if best_score == 0:
+        raise SystemExit(
+            "No verified engineering quantities found for this subject. "
+            "This dataset is not physics-ready; create a verified field mapping "
+            "before preparing a physics bundle."
+        )
+
+    selected = [item[2] for item in ranked[: max(1, min(args.limit, len(ranked)))]]
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     bundle = {
         "subject": args.subject,
         "records": selected,
         "source": str(args.input),
         "recordCount": len(selected),
+        "validation": {
+            "bestEngineeringFieldCount": best_score,
+            "physicsReady": best_score > 0,
+        },
     }
     args.output.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
-    print(f"Wrote {len(selected)} records to {args.output}")
+    print(f"Wrote {len(selected)} validated records to {args.output}")
 
 
 if __name__ == "__main__":
