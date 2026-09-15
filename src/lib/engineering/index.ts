@@ -5,3 +5,4 @@ export * from "./rescastShadow";
 export * from "./interventionEngine";
 export * from "./economicsEngine";
 export * from "./portfolioOptimizer";
+export * from "./diagnosisEngine";
