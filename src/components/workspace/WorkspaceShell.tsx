@@ -133,6 +133,7 @@ export function WorkspaceShell() {
               transition={{ duration: 0.28, ease: "easeOut" }}
             >
               {state.centerMode === "first" && <FirstExperience />}
+              {state.centerMode === "overview" && <OverviewPanel />}
               {state.centerMode === "camera" && (
                 <CameraCapture onClose={() => setCenterMode("evidence")} />
               )}
@@ -154,10 +155,6 @@ export function WorkspaceShell() {
               {state.centerMode === "sequence" && (
                 <RetrofitPanel view="sequence" />
               )}
-              {state.section === "overview" &&
-                state.centerMode === "building" && (
-                  <OverviewPanel />
-                )}
             </motion.div>
           </AnimatePresence>
         </main>
