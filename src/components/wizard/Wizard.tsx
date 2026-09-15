@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type RefObject,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { IsometricBuilding } from "@/components/IsometricBuilding";
@@ -59,7 +67,7 @@ const SUBJECT_META: Record<Subject, { label: string; detail: string; prompt: str
   equipment: {
     label: "Equipment",
     detail: "Chiller, compressor, pump, boiler, fan, motor, refrigeration, or other machinery",
-    prompt: "Capture the equipment, nameplate, installation condition, and any available operating evidence.",
+    prompt: "Capture the equipment, nameplate, installation condition, and available operating evidence.",
   },
 };
 
@@ -85,10 +93,6 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function labelForSubject(subject: Subject | null) {
-  return subject ? SUBJECT_META[subject].label : "Assessment";
-}
-
 export function Wizard() {
   const router = useRouter();
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +105,8 @@ export function Wizard() {
   const [goal, setGoal] = useState<Goal | null>(null);
   const [data, setData] = useState<WizardInput>(emptyWizard);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+  const [assetClass, setAssetClass] = useState("");
+  const [operatingHours, setOperatingHours] = useState("");
   const [locationQuery, setLocationQuery] = useState("");
   const [locationResults, setLocationResults] = useState<LocationResult[]>([]);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -152,9 +158,7 @@ export function Wizard() {
     }
 
     setEvidence((current) => [...current, ...incoming].slice(0, 20));
-    setNotice(
-      `${incoming.length} evidence item${incoming.length === 1 ? "" : "s"} added. Overhaul will extract what it can before asking for anything else.`
-    );
+    setNotice(`${incoming.length} evidence item${incoming.length === 1 ? "" : "s"} added.`);
   }, []);
 
   const removeEvidence = useCallback((id: string) => {
@@ -180,9 +184,7 @@ export function Wizard() {
       try {
         const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
         const json = await response.json();
-        if (!cancelled) {
-          setLocationResults(Array.isArray(json.results) ? json.results : []);
-        }
+        if (!cancelled) setLocationResults(Array.isArray(json.results) ? json.results : []);
       } catch {
         if (!cancelled) setLocationResults([]);
       } finally {
@@ -196,13 +198,15 @@ export function Wizard() {
     };
   }, [locationQuery]);
 
-  useEffect(() => {
-    return () => {
-      evidence.forEach((item) => {
-        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-      });
-    };
-  }, [evidence]);
+  const chooseLocation = (result: LocationResult) => {
+    setLocationQuery(result.label);
+    patch({
+      locationLabel: result.label,
+      latitude: result.latitude,
+      longitude: result.longitude,
+    });
+    setLocationResults([]);
+  };
 
   const onDemo = () => {
     clearEvidence();
@@ -210,10 +214,11 @@ export function Wizard() {
     setData(demo);
     setSubject("building");
     setGoal("energy");
+    setAssetClass("");
+    setOperatingHours("");
     setLocationQuery(demo.locationLabel);
-    setLocationResults([]);
     setError(null);
-    setNotice("Demo model loaded. Add real evidence or run this known example to inspect the engineering result.");
+    setNotice("Demo model loaded. Add evidence or run the known example from the review screen.");
     go(1);
   };
 
@@ -223,25 +228,18 @@ export function Wizard() {
     return true;
   }, [evidence.length, goal, step, subject]);
 
-  const chooseLocation = (result: LocationResult) => {
-    setLocationQuery(result.label);
-    patch({
-      locationLabel: result.label,
-      latitude: result.latitude,
-      longitude: result.longitude,
+  const toggleIssue = (issue: ReportedIssue) => {
+    setData((current) => {
+      const currentIssues = current.reportedIssues ?? [];
+      const next = currentIssues.includes(issue)
+        ? currentIssues.filter((item) => item !== issue)
+        : [...currentIssues, issue];
+      return { ...current, reportedIssues: next };
     });
-    setLocationResults([]);
-    setNotice("Location locked. Climate data can now be resolved from coordinates.");
-  };
-
-  const onFileInput = (kind: EvidenceKind) => (event: ChangeEvent<HTMLInputElement>) => {
-    addEvidence(kind, event.target.files);
-    event.target.value = "";
   };
 
   const submit = async () => {
     if (!subject || !goal) return;
-
     setSubmitting(true);
     setError(null);
     setNotice(null);
@@ -268,7 +266,11 @@ export function Wizard() {
           type: item.file.type,
           size: item.file.size,
         })),
-        context: payload,
+        context: {
+          ...payload,
+          assetClass: assetClass || null,
+          operatingHours: operatingHours ? Number(operatingHours) : null,
+        },
         status: "evidence-collected" as const,
       };
 
@@ -281,9 +283,7 @@ export function Wizard() {
           body: JSON.stringify(payload),
         });
         const json = await response.json();
-        if (!response.ok) {
-          throw new Error(json.error || "Engineering calculation failed");
-        }
+        if (!response.ok) throw new Error(json.error || "Engineering calculation failed");
 
         sessionStorage.setItem(
           "overhaul:result",
@@ -307,43 +307,25 @@ export function Wizard() {
     }
   };
 
-  const toggleIssue = (issue: ReportedIssue) => {
-    setData((current) => {
-      const currentIssues = current.reportedIssues ?? [];
-      const next = currentIssues.includes(issue)
-        ? currentIssues.filter((item) => item !== issue)
-        : [...currentIssues, issue];
-      return { ...current, reportedIssues: next };
-    });
-  };
-
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-4xl flex-col px-4 pb-16 pt-8 sm:px-6">
       <ProgressBar step={step} total={STEPS.length} />
 
       <header className="mt-8 flex items-start justify-between gap-8">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-steel">
-            Evidence-first engineering intelligence
-          </p>
-          <h1 className="font-display mt-2 text-4xl tracking-tight text-paper sm:text-5xl">
-            Overhaul
-          </h1>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-steel">Evidence-first engineering intelligence</p>
+          <h1 className="font-display mt-2 text-4xl tracking-tight text-paper sm:text-5xl">Overhaul</h1>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-steel">
-            Start with evidence. Overhaul builds the smallest defensible model, separates known from unknown, and only asks for information that can change the decision.
+            Start with evidence. Build the smallest defensible model. Unknown engineering values remain unknown until evidence establishes them.
           </p>
-
           {subject && goal ? (
             <div className="mt-4 flex flex-wrap gap-2">
-              <Chip selected>{labelForSubject(subject)}</Chip>
-              <Chip selected>
-                {GOALS.find((item) => item.value === goal)?.label ?? "Assessment"}
-              </Chip>
+              <Chip selected>{SUBJECT_META[subject].label}</Chip>
+              <Chip selected>{GOALS.find((item) => item.value === goal)?.label}</Chip>
               <Chip selected>{evidence.length} evidence</Chip>
             </div>
           ) : null}
         </div>
-
         <IsometricBuilding className="hidden h-28 w-36 text-steel/70 sm:block" />
       </header>
 
@@ -355,12 +337,8 @@ export function Wizard() {
               type="button"
               disabled={index > step}
               onClick={() => go(index)}
-              className={`shrink-0 text-[11px] uppercase tracking-[0.14em] transition-colors ${
-                index === step
-                  ? "text-teal"
-                  : index < step
-                    ? "text-paper hover:text-teal"
-                    : "text-steel/40"
+              className={`shrink-0 text-[11px] uppercase tracking-[0.14em] ${
+                index === step ? "text-teal" : index < step ? "text-paper hover:text-teal" : "text-steel/40"
               }`}
             >
               {String(index + 1).padStart(2, "0")} {name}
@@ -389,10 +367,7 @@ export function Wizard() {
                 setGoal(null);
                 setError(null);
               }}
-              onGoal={(next) => {
-                setGoal(next);
-                setError(null);
-              }}
+              onGoal={setGoal}
               onDemo={onDemo}
             />
           ) : null}
@@ -414,6 +389,10 @@ export function Wizard() {
               subject={subject}
               data={data}
               patch={patch}
+              assetClass={assetClass}
+              setAssetClass={setAssetClass}
+              operatingHours={operatingHours}
+              setOperatingHours={setOperatingHours}
               locationQuery={locationQuery}
               setLocationQuery={setLocationQuery}
               locationResults={locationResults}
@@ -431,23 +410,16 @@ export function Wizard() {
               goal={goal}
               evidence={evidence}
               data={data}
+              assetClass={assetClass}
+              operatingHours={operatingHours}
               onJump={go}
             />
           ) : null}
         </motion.section>
       </AnimatePresence>
 
-      {notice ? (
-        <div className="mt-5 border border-teal/30 bg-teal/5 px-4 py-3 text-sm leading-relaxed text-teal">
-          {notice}
-        </div>
-      ) : null}
-
-      {error ? (
-        <div className="mt-5 border border-clay/40 bg-clay/5 px-4 py-3 text-sm leading-relaxed text-clay">
-          {error}
-        </div>
-      ) : null}
+      {notice ? <div className="mt-5 border border-teal/30 bg-teal/5 px-4 py-3 text-sm text-teal">{notice}</div> : null}
+      {error ? <div className="mt-5 border border-clay/40 bg-clay/5 px-4 py-3 text-sm leading-relaxed text-clay">{error}</div> : null}
 
       <footer className="mt-10 flex items-center justify-between border-t border-steel/20 pt-6">
         <button
@@ -458,13 +430,12 @@ export function Wizard() {
         >
           Back
         </button>
-
         {step < STEPS.length - 1 ? (
           <button
             type="button"
             disabled={!canContinue || submitting}
             onClick={() => go(step + 1)}
-            className="border border-teal bg-teal/10 px-5 py-2.5 text-sm text-teal transition-colors hover:bg-teal/15 disabled:cursor-not-allowed disabled:opacity-35"
+            className="border border-teal bg-teal/10 px-5 py-2.5 text-sm text-teal hover:bg-teal/15 disabled:cursor-not-allowed disabled:opacity-35"
           >
             Continue
           </button>
@@ -473,15 +444,9 @@ export function Wizard() {
             type="button"
             disabled={!subject || !goal || evidence.length === 0 || submitting}
             onClick={() => void submit()}
-            className="border border-gold bg-gold/10 px-5 py-2.5 text-sm text-gold transition-colors hover:bg-gold/15 disabled:cursor-not-allowed disabled:opacity-35"
+            className="border border-gold bg-gold/10 px-5 py-2.5 text-sm text-gold hover:bg-gold/15 disabled:cursor-not-allowed disabled:opacity-35"
           >
-            {submitting
-              ? subject === "building"
-                ? "Calculating…"
-                : "Preparing assessment…"
-              : subject === "building"
-                ? "Run Engineering Assessment"
-                : "Open Assessment Workspace"}
+            {submitting ? "Building model…" : subject === "building" ? "Run Engineering Assessment" : "Open Assessment Workspace"}
           </button>
         )}
       </footer>
@@ -489,13 +454,7 @@ export function Wizard() {
   );
 }
 
-function TargetStep({
-  subject,
-  goal,
-  onSubject,
-  onGoal,
-  onDemo,
-}: {
+function TargetStep({ subject, goal, onSubject, onGoal, onDemo }: {
   subject: Subject | null;
   goal: Goal | null;
   onSubject: (value: Subject) => void;
@@ -505,46 +464,24 @@ function TargetStep({
   return (
     <div className="space-y-10">
       <section>
-        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">
-          Start with the thing that needs improvement
-        </p>
-        <h2 className="font-display mt-2 text-2xl text-paper sm:text-3xl">
-          What are we assessing?
-        </h2>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">
-          One workflow covers buildings, facilities, and standalone equipment. You do not need to know the engineering parameters in advance.
-        </p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Assessment target</p>
+        <h2 className="font-display mt-2 text-2xl text-paper sm:text-3xl">What are we assessing?</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">One workflow covers buildings, facilities, and standalone equipment.</p>
       </section>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        {(Object.entries(SUBJECT_META) as Array<[Subject, (typeof SUBJECT_META)[Subject]]>).map(
-          ([value, meta]) => (
-            <TapCard
-              key={value}
-              selected={subject === value}
-              onClick={() => onSubject(value)}
-              title={meta.label}
-              subtitle={meta.detail}
-            >
-              <div className="mt-5 border-t border-steel/15 pt-4 text-xs leading-relaxed text-steel">
-                {meta.prompt}
-              </div>
-            </TapCard>
-          )
-        )}
+        {(Object.entries(SUBJECT_META) as Array<[Subject, (typeof SUBJECT_META)[Subject]]>).map(([value, meta]) => (
+          <TapCard key={value} selected={subject === value} onClick={() => onSubject(value)} title={meta.label} subtitle={meta.detail}>
+            <div className="mt-5 border-t border-steel/15 pt-4 text-xs leading-relaxed text-steel">{meta.prompt}</div>
+          </TapCard>
+        ))}
       </div>
 
       <section>
-        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Assessment objective</p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Objective</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {GOALS.map((item) => (
-            <TapCard
-              key={item.value}
-              selected={goal === item.value}
-              onClick={() => onGoal(item.value)}
-              title={item.label}
-              subtitle={item.detail}
-            />
+            <TapCard key={item.value} selected={goal === item.value} onClick={() => onGoal(item.value)} title={item.label} subtitle={item.detail} />
           ))}
         </div>
       </section>
@@ -553,15 +490,9 @@ function TargetStep({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] text-gold">Judge-ready demo</p>
-            <p className="mt-1 text-sm text-paper">Load a known building example to exercise the existing deterministic engine.</p>
+            <p className="mt-1 text-sm text-paper">Exercise the existing deterministic building engine without filling the form.</p>
           </div>
-          <button
-            type="button"
-            onClick={onDemo}
-            className="border border-gold/60 px-4 py-2 text-xs uppercase tracking-[0.14em] text-gold hover:bg-gold/10"
-          >
-            Load demo
-          </button>
+          <button type="button" onClick={onDemo} className="border border-gold/60 px-4 py-2 text-xs uppercase tracking-[0.14em] text-gold hover:bg-gold/10">Load demo</button>
         </div>
         <p className="mt-3 text-xs leading-relaxed text-steel/80">{DEMO_NOTES}</p>
       </div>
@@ -569,20 +500,12 @@ function TargetStep({
   );
 }
 
-function EvidenceStep({
-  subject,
-  evidence,
-  cameraInputRef,
-  photoInputRef,
-  documentInputRef,
-  onFiles,
-  onRemove,
-}: {
+function EvidenceStep({ subject, evidence, cameraInputRef, photoInputRef, documentInputRef, onFiles, onRemove }: {
   subject: Subject | null;
   evidence: EvidenceItem[];
-  cameraInputRef: React.RefObject<HTMLInputElement | null>;
-  photoInputRef: React.RefObject<HTMLInputElement | null>;
-  documentInputRef: React.RefObject<HTMLInputElement | null>;
+  cameraInputRef: RefObject<HTMLInputElement | null>;
+  photoInputRef: RefObject<HTMLInputElement | null>;
+  documentInputRef: RefObject<HTMLInputElement | null>;
   onFiles: (kind: EvidenceKind, files: FileList | null) => void;
   onRemove: (id: string) => void;
 }) {
@@ -591,73 +514,30 @@ function EvidenceStep({
       <section>
         <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Evidence first</p>
         <h2 className="font-display mt-2 text-2xl text-paper sm:text-3xl">Show Overhaul what exists.</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">
-          Do not describe the machine from memory. Give Overhaul evidence and let the perception layer extract model, geometry, visible condition, labels, and other observations.
-        </p>
-        <p className="mt-2 text-xs text-steel/70">
-          {subject ? SUBJECT_META[subject].prompt : "Choose a target first."}
-        </p>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">Use a scan, photo, or document. The eventual perception layer will extract identity, geometry, condition, labels, and other observations from this evidence.</p>
+        <p className="mt-2 text-xs text-steel/70">{subject ? SUBJECT_META[subject].prompt : "Choose a target first."}</p>
       </section>
 
       <div className="grid gap-3 md:grid-cols-3">
-        <EvidenceButton
-          title="Scan / camera"
-          detail="Use the device camera for a live evidence capture or walkthrough."
-          onClick={() => cameraInputRef.current?.click()}
-        />
-        <EvidenceButton
-          title="Add photos"
-          detail="Exterior, equipment, room, nameplate, installation, controls, or condition."
-          onClick={() => photoInputRef.current?.click()}
-        />
-        <EvidenceButton
-          title="Add documents"
-          detail="Bills, manuals, maintenance logs, drawings, datasheets, or reports."
-          onClick={() => documentInputRef.current?.click()}
-        />
+        <EvidenceButton title="Scan / camera" detail="Use the device camera for a direct evidence capture." onClick={() => cameraInputRef.current?.click()} />
+        <EvidenceButton title="Add photos" detail="Equipment, nameplates, rooms, envelope, controls, installation, or condition." onClick={() => photoInputRef.current?.click()} />
+        <EvidenceButton title="Add documents" detail="Bills, manuals, maintenance logs, drawings, datasheets, reports, or exports." onClick={() => documentInputRef.current?.click()} />
       </div>
 
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*,video/*"
-        capture="environment"
-        multiple
-        className="hidden"
-        onChange={(event) => onFiles("scan", event.target.files)}
-      />
-      <input
-        ref={photoInputRef}
-        type="file"
-        accept="image/*,video/*"
-        multiple
-        className="hidden"
-        onChange={(event) => onFiles("photo", event.target.files)}
-      />
-      <input
-        ref={documentInputRef}
-        type="file"
-        accept="application/pdf,.pdf,application/msword,.doc,.docx,.csv,.txt,.xlsx,.xls"
-        multiple
-        className="hidden"
-        onChange={(event) => onFiles("document", event.target.files)}
-      />
+      <input ref={cameraInputRef} type="file" accept="image/*,video/*" capture="environment" multiple className="hidden" onChange={(event) => onFiles("scan", event.target.files)} />
+      <input ref={photoInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(event) => onFiles("photo", event.target.files)} />
+      <input ref={documentInputRef} type="file" accept="application/pdf,.pdf,.doc,.docx,.csv,.txt,.xlsx,.xls" multiple className="hidden" onChange={(event) => onFiles("document", event.target.files)} />
 
       {evidence.length === 0 ? (
         <div className="border border-dashed border-steel/30 p-8 text-center">
           <p className="text-sm text-paper">No evidence collected yet.</p>
-          <p className="mt-2 text-xs leading-relaxed text-steel">
-            One useful photo is better than ten generic questions. Start with the most informative view.
-          </p>
+          <p className="mt-2 text-xs leading-relaxed text-steel">One useful photo is better than ten generic questions.</p>
         </div>
       ) : (
         <div className="border border-steel/20">
           <div className="flex items-center justify-between border-b border-steel/15 px-4 py-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.16em] text-steel">Evidence package</p>
-              <p className="mt-1 text-sm text-paper">{evidence.length} item{evidence.length === 1 ? "" : "s"}</p>
-            </div>
-            <p className="text-xs text-steel">Up to 20 items · 25 MB each</p>
+            <p className="text-sm text-paper">{evidence.length} evidence item{evidence.length === 1 ? "" : "s"}</p>
+            <p className="text-xs text-steel">Up to 20 · 25 MB each</p>
           </div>
           <div className="grid gap-3 p-4 sm:grid-cols-2">
             {evidence.map((item) => (
@@ -673,17 +553,10 @@ function EvidenceStep({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-paper">{item.file.name}</p>
-                    <p className="mt-1 text-xs uppercase tracking-wide text-steel">{item.kind}</p>
+                    <p className="mt-1 text-[10px] uppercase tracking-wide text-steel">{item.kind}</p>
                     <p className="mt-2 text-xs text-steel">{formatBytes(item.file.size)}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(item.id)}
-                    className="self-start text-xs text-steel hover:text-clay"
-                    aria-label={`Remove ${item.file.name}`}
-                  >
-                    Remove
-                  </button>
+                  <button type="button" onClick={() => onRemove(item.id)} className="self-start text-xs text-steel hover:text-clay">Remove</button>
                 </div>
               </div>
             ))}
@@ -694,21 +567,9 @@ function EvidenceStep({
   );
 }
 
-function EvidenceButton({
-  title,
-  detail,
-  onClick,
-}: {
-  title: string;
-  detail: string;
-  onClick: () => void;
-}) {
+function EvidenceButton({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group border border-steel/25 p-5 text-left transition-colors hover:border-teal/60 hover:bg-teal/5"
-    >
+    <button type="button" onClick={onClick} className="group border border-steel/25 p-5 text-left transition-colors hover:border-teal/60 hover:bg-teal/5">
       <p className="text-sm font-medium text-paper group-hover:text-teal">{title}</p>
       <p className="mt-2 text-xs leading-relaxed text-steel">{detail}</p>
       <p className="mt-4 text-[10px] uppercase tracking-[0.16em] text-teal">Add evidence →</p>
@@ -716,22 +577,14 @@ function EvidenceButton({
   );
 }
 
-function ContextStep({
-  subject,
-  data,
-  patch,
-  locationQuery,
-  setLocationQuery,
-  locationResults,
-  locationLoading,
-  chooseLocation,
-  showAdvanced,
-  setShowAdvanced,
-  onToggleIssue,
-}: {
+function ContextStep({ subject, data, patch, assetClass, setAssetClass, operatingHours, setOperatingHours, locationQuery, setLocationQuery, locationResults, locationLoading, chooseLocation, showAdvanced, setShowAdvanced, onToggleIssue }: {
   subject: Subject | null;
   data: WizardInput;
   patch: (partial: Partial<WizardInput>) => void;
+  assetClass: string;
+  setAssetClass: (value: string) => void;
+  operatingHours: string;
+  setOperatingHours: (value: string) => void;
   locationQuery: string;
   setLocationQuery: (value: string) => void;
   locationResults: LocationResult[];
@@ -741,41 +594,25 @@ function ContextStep({
   setShowAdvanced: (value: boolean) => void;
   onToggleIssue: (issue: ReportedIssue) => void;
 }) {
-  const hvacOptions = Object.entries(HVAC_SYSTEM_LABELS).map(([value, label]) => ({ value, label }));
+  const hvacOptions = Object.entries(HVAC_SYSTEM_LABELS).map(([value, label]) => [value, label] as [string, string]);
 
   return (
     <div className="space-y-8">
       <section>
         <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Minimum context</p>
-        <h2 className="font-display mt-2 text-2xl text-paper sm:text-3xl">Tell us only what the evidence cannot.</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">
-          These inputs are context for the engineering model. They are not a request to manually describe every component.
-        </p>
+        <h2 className="font-display mt-2 text-2xl text-paper sm:text-3xl">Tell us only what evidence cannot.</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">These are context variables. They are not a request to manually describe every component.</p>
       </section>
 
       <section className="space-y-3">
         <label className="text-[10px] uppercase tracking-[0.16em] text-steel">Site / operating location</label>
         <div className="relative">
-          <input
-            value={locationQuery}
-            onChange={(event) => setLocationQuery(event.target.value)}
-            placeholder={subject === "equipment" ? "Optional site, city, or facility location" : "City, region, or facility location"}
-            className="w-full border border-steel/25 bg-transparent px-4 py-3 text-sm text-paper outline-none placeholder:text-steel/40 focus:border-teal"
-          />
-          {locationLoading ? (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wide text-steel">Finding…</span>
-          ) : null}
+          <input value={locationQuery} onChange={(event) => setLocationQuery(event.target.value)} placeholder={subject === "equipment" ? "Optional site, city, or facility location" : "City, region, or facility location"} className="w-full border border-steel/25 bg-transparent px-4 py-3 text-sm text-paper outline-none placeholder:text-steel/40 focus:border-teal" />
+          {locationLoading ? <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wide text-steel">Finding…</span> : null}
           {locationResults.length > 0 ? (
             <div className="absolute z-20 mt-1 w-full border border-steel/25 bg-[#050505] shadow-xl">
               {locationResults.slice(0, 6).map((result) => (
-                <button
-                  key={result.id}
-                  type="button"
-                  onClick={() => chooseLocation(result)}
-                  className="block w-full border-b border-steel/15 px-4 py-3 text-left text-sm text-paper last:border-b-0 hover:bg-teal/5"
-                >
-                  {result.label}
-                </button>
+                <button key={result.id} type="button" onClick={() => chooseLocation(result)} className="block w-full border-b border-steel/15 px-4 py-3 text-left text-sm text-paper last:border-b-0 hover:bg-teal/5">{result.label}</button>
               ))}
             </div>
           ) : null}
@@ -784,225 +621,67 @@ function ContextStep({
 
       {subject !== "equipment" ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="Approx. area"
-            value={String(data.floorAreaM2)}
-            suffix="m²"
-            type="number"
-            min={1}
-            onChange={(value) => patch({ floorAreaM2: Math.max(1, Number(value) || 1) })}
-          />
-          <SelectField
-            label="Use type"
-            value={data.buildingType}
-            options={[
-              ["home", "Home / apartment"],
-              ["office", "Office / commercial"],
-              ["mixed", "Mixed / other"],
-            ]}
-            onChange={(value) => patch({ buildingType: value as WizardInput["buildingType"] })}
-          />
+          <Field label="Approx. area" value={String(data.floorAreaM2)} suffix="m²" type="number" min={1} onChange={(value) => patch({ floorAreaM2: Math.max(1, Number(value) || 1) })} />
+          <SelectField label="Use type" value={data.buildingType} options={[["home", "Home / apartment"], ["office", "Office / commercial"], ["mixed", "Mixed / other"]]} onChange={(value) => patch({ buildingType: value as WizardInput["buildingType"] })} />
         </div>
       ) : null}
 
       {subject === "equipment" ? (
-        <div className="space-y-4">
-          <SelectField
-            label="Equipment class"
-            value={(data as WizardInput & { equipmentClass?: string }).equipmentClass ?? ""}
-            options={[["", "Not sure — let evidence identify it"], ...EQUIPMENT_CLASSES.map((item) => [item, item] as [string, string])]}
-            onChange={(value) =>
-              patch({
-                ...(value ? { hvacSystemType: value as WizardInput["hvacSystemType"] } : {}),
-              })
-            }
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Typical operating hours"
-              value={(data as WizardInput & { operatingHours?: number }).operatingHours?.toString() ?? ""}
-              suffix="h/day"
-              type="number"
-              min={0}
-              max={24}
-              placeholder="Optional"
-              onChange={(value) => patch({} as Partial<WizardInput>)}
-            />
-            <p className="border border-steel/20 p-4 text-xs leading-relaxed text-steel">
-              Actual efficiency, wear, load, vibration, pressure, and temperature performance stay <span className="text-paper">unknown</span> until evidence or measurements establish them.
-            </p>
-          </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <SelectField label="Equipment class" value={assetClass} options={[["", "Not sure — let evidence identify it"], ...EQUIPMENT_CLASSES.map((item) => [item, item] as [string, string])]} onChange={setAssetClass} />
+          <Field label="Typical operating hours" value={operatingHours} suffix="h/day" type="number" min={0} max={24} step={0.5} placeholder="Optional" onChange={setOperatingHours} />
+          <div className="border border-steel/20 p-4 text-xs leading-relaxed text-steel sm:col-span-2">Actual efficiency, wear, load, vibration, pressure, and temperature performance remain <span className="text-paper">unknown</span> until evidence or measurements establish them.</div>
         </div>
       ) : null}
 
       {subject === "building" ? (
         <section className="space-y-4">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.16em] text-steel">HVAC context</p>
-            <p className="mt-1 text-xs text-steel">Basic context only. The evidence layer should identify the actual equipment later.</p>
-          </div>
+          <div><p className="text-[10px] uppercase tracking-[0.16em] text-steel">HVAC context</p><p className="mt-1 text-xs text-steel">Basic context only. Evidence should identify the actual equipment later.</p></div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <SelectField
-              label="System type"
-              value={data.hvacSystemType}
-              options={hvacOptions.map((item) => [item.value, item.label] as [string, string])}
-              onChange={(value) => patch({ hvacSystemType: value as WizardInput["hvacSystemType"] })}
-            />
-            <SelectField
-              label="Ventilation"
-              value={data.ventilation}
-              options={[
-                ["natural", "Natural / mixed"],
-                ["mechanical", "Mechanical"],
-              ]}
-              onChange={(value) => patch({ ventilation: value as WizardInput["ventilation"] })}
-            />
+            <SelectField label="System type" value={data.hvacSystemType} options={hvacOptions} onChange={(value) => patch({ hvacSystemType: value as WizardInput["hvacSystemType"] })} />
+            <SelectField label="Ventilation" value={data.ventilation} options={[["natural", "Natural / mixed"], ["mechanical", "Mechanical"]]} onChange={(value) => patch({ ventilation: value as WizardInput["ventilation"] })} />
           </div>
         </section>
       ) : null}
 
       {subject !== "equipment" ? (
         <section className="space-y-4">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.16em] text-steel">What is already being felt?</p>
-            <p className="mt-1 text-xs text-steel">These observations only adjust priority; they do not become engineering measurements.</p>
-          </div>
+          <div><p className="text-[10px] uppercase tracking-[0.16em] text-steel">Reported observations</p><p className="mt-1 text-xs text-steel">These adjust priority only; they do not become engineering measurements.</p></div>
           <div className="flex flex-wrap gap-2">
-            {ISSUES.map((item) => (
-              <Chip
-                key={item.value}
-                selected={(data.reportedIssues ?? []).includes(item.value)}
-                onClick={() => onToggleIssue(item.value)}
-              >
-                {item.label}
-              </Chip>
-            ))}
+            {ISSUES.map((item) => <Chip key={item.value} selected={(data.reportedIssues ?? []).includes(item.value)} onClick={() => onToggleIssue(item.value)}>{item.label}</Chip>)}
           </div>
         </section>
       ) : null}
 
-      <button
-        type="button"
-        onClick={() => setShowAdvanced(!showAdvanced)}
-        className="text-xs uppercase tracking-[0.15em] text-steel hover:text-paper"
-      >
-        {showAdvanced ? "Hide advanced context" : "Show advanced context"}
-      </button>
-
+      <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs uppercase tracking-[0.15em] text-steel hover:text-paper">{showAdvanced ? "Hide advanced context" : "Show advanced context"}</button>
       {showAdvanced ? (
         <div className="grid gap-4 border-t border-steel/15 pt-5 sm:grid-cols-2">
-          <Field
-            label="Energy rate"
-            value={String(data.energyRateINR)}
-            suffix="local equivalent"
-            type="number"
-            min={0}
-            step={0.01}
-            onChange={(value) => patch({ energyRateINR: Math.max(0, Number(value) || 0) })}
-          />
-          <div className="border border-steel/20 p-4 text-xs leading-relaxed text-steel">
-            Advanced inputs are optional. The evidence/engineering layers should replace assumptions with traced values as more information becomes available.
-          </div>
+          <Field label="Energy rate" value={String(data.energyRateINR)} suffix="model rate" type="number" min={0} step={0.01} onChange={(value) => patch({ energyRateINR: Math.max(0, Number(value) || 0) })} />
+          <div className="border border-steel/20 p-4 text-xs leading-relaxed text-steel">Advanced inputs are optional. The engineering layer should replace assumptions with traced values as evidence becomes available.</div>
         </div>
       ) : null}
     </div>
   );
 }
 
-function Field({
-  label,
-  value,
-  suffix,
-  type = "text",
-  min,
-  max,
-  step,
-  placeholder,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  suffix?: string;
-  type?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  placeholder?: string;
-  onChange: (value: string) => void;
-}) {
+function Field({ label, value, suffix, type = "text", min, max, step, placeholder, onChange }: { label: string; value: string; suffix?: string; type?: string; min?: number; max?: number; step?: number; placeholder?: string; onChange: (value: string) => void }) {
   return (
-    <label className="block">
-      <span className="text-[10px] uppercase tracking-[0.16em] text-steel">{label}</span>
-      <div className="mt-2 flex border border-steel/25 focus-within:border-teal">
-        <input
-          type={type}
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          placeholder={placeholder}
-          onChange={(event) => onChange(event.target.value)}
-          className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-paper outline-none placeholder:text-steel/40"
-        />
-        {suffix ? <span className="border-l border-steel/15 px-3 py-3 text-xs text-steel">{suffix}</span> : null}
-      </div>
-    </label>
+    <label className="block"><span className="text-[10px] uppercase tracking-[0.16em] text-steel">{label}</span><div className="mt-2 flex border border-steel/25 focus-within:border-teal"><input type={type} min={min} max={max} step={step} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-paper outline-none placeholder:text-steel/40" />{suffix ? <span className="border-l border-steel/15 px-3 py-3 text-xs text-steel">{suffix}</span> : null}</div></label>
   );
 }
 
-function SelectField({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: Array<[string, string]>;
-  onChange: (value: string) => void;
-}) {
+function SelectField({ label, value, options, onChange }: { label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void }) {
   return (
-    <label className="block">
-      <span className="text-[10px] uppercase tracking-[0.16em] text-steel">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full border border-steel/25 bg-[#050505] px-4 py-3 text-sm text-paper outline-none focus:border-teal"
-      >
-        {options.map(([optionValue, optionLabel]) => (
-          <option key={optionValue} value={optionValue} className="bg-[#050505] text-paper">
-            {optionLabel}
-          </option>
-        ))}
-      </select>
-    </label>
+    <label className="block"><span className="text-[10px] uppercase tracking-[0.16em] text-steel">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full border border-steel/25 bg-[#050505] px-4 py-3 text-sm text-paper outline-none focus:border-teal">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue} className="bg-[#050505] text-paper">{optionLabel}</option>)}</select></label>
   );
 }
 
-function ReviewStep({
-  subject,
-  goal,
-  evidence,
-  data,
-  onJump,
-}: {
-  subject: Subject | null;
-  goal: Goal | null;
-  evidence: EvidenceItem[];
-  data: WizardInput;
-  onJump: (step: number) => void;
-}) {
+function ReviewStep({ subject, goal, evidence, data, assetClass, operatingHours, onJump }: { subject: Subject | null; goal: Goal | null; evidence: EvidenceItem[]; data: WizardInput; assetClass: string; operatingHours: string; onJump: (step: number) => void }) {
   const known: string[] = [];
   const unknown: string[] = [];
 
-  if (evidence.length > 0) known.push(`${evidence.length} evidence item${evidence.length === 1 ? "" : "s"} collected`);
-  else unknown.push("No evidence collected");
-
-  if (data.locationLabel && Number.isFinite(data.latitude) && Number.isFinite(data.longitude)) {
-    known.push("Site coordinates available");
-  } else {
-    unknown.push("Location not locked");
-  }
+  if (evidence.length) known.push(`${evidence.length} evidence item${evidence.length === 1 ? "" : "s"} collected`); else unknown.push("No evidence collected");
+  if (data.locationLabel && Number.isFinite(data.latitude) && Number.isFinite(data.longitude)) known.push("Site coordinates available"); else unknown.push("Location not locked");
 
   if (subject === "building") {
     known.push(`${data.floorAreaM2} m² context area`);
@@ -1012,68 +691,25 @@ function ReviewStep({
     known.push("Facility subject selected");
     unknown.push("Asset inventory and process interactions until evidence extraction");
   } else if (subject === "equipment") {
-    known.push("Standalone equipment subject selected");
-    unknown.push("Actual load, efficiency, degradation, and internal condition until evidence/measurements establish them");
+    if (assetClass) known.push(`Equipment class: ${assetClass}`); else unknown.push("Equipment identity until evidence extraction");
+    if (operatingHours) known.push(`${operatingHours} h/day operating context`); else unknown.push("Operating schedule");
+    unknown.push("Actual load, efficiency, degradation, and internal condition until evidence or measurements establish them");
   }
 
   return (
     <div className="space-y-8">
-      <section>
-        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Model intake review</p>
-        <h2 className="font-display mt-2 text-2xl text-paper sm:text-3xl">Ready to build the assessment.</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">
-          This screen deliberately shows what is known and what remains unknown. Unknown values are not silently guessed.
-        </p>
-      </section>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard label="Target" value={labelForSubject(subject)} />
-        <SummaryCard label="Objective" value={GOALS.find((item) => item.value === goal)?.label ?? "Not selected"} />
-        <SummaryCard label="Evidence" value={`${evidence.length} item${evidence.length === 1 ? "" : "s"}`} />
-      </div>
-
+      <section><p className="text-[10px] uppercase tracking-[0.18em] text-steel">Model intake review</p><h2 className="font-display mt-2 text-2xl text-paper sm:text-3xl">Ready to build the assessment.</h2><p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">Known and unknown values are shown explicitly. The system should never turn a missing parameter into a hidden guess.</p></section>
+      <div className="grid gap-4 sm:grid-cols-3"><SummaryCard label="Target" value={subject ? SUBJECT_META[subject].label : "Not selected"} /><SummaryCard label="Objective" value={goal ? GOALS.find((item) => item.value === goal)?.label ?? "Assessment" : "Not selected"} /><SummaryCard label="Evidence" value={`${evidence.length} item${evidence.length === 1 ? "" : "s"}`} /></div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="border border-teal/25 bg-teal/5 p-5">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-teal">Established / provided</p>
-          <div className="mt-4 space-y-2">
-            {known.map((item) => (
-              <p key={item} className="text-sm text-paper">✓ {item}</p>
-            ))}
-          </div>
-        </div>
-        <div className="border border-clay/25 bg-clay/5 p-5">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-clay">Unknown / needs evidence</p>
-          <div className="mt-4 space-y-2">
-            {unknown.length ? unknown.map((item) => <p key={item} className="text-sm text-paper">? {item}</p>) : <p className="text-sm text-paper">None flagged at intake.</p>}
-          </div>
-        </div>
+        <div className="border border-teal/25 bg-teal/5 p-5"><p className="text-[10px] uppercase tracking-[0.16em] text-teal">Established / provided</p><div className="mt-4 space-y-2">{known.map((item) => <p key={item} className="text-sm text-paper">✓ {item}</p>)}</div></div>
+        <div className="border border-clay/25 bg-clay/5 p-5"><p className="text-[10px] uppercase tracking-[0.16em] text-clay">Unknown / needs evidence</p><div className="mt-4 space-y-2">{unknown.length ? unknown.map((item) => <p key={item} className="text-sm text-paper">? {item}</p>) : <p className="text-sm text-paper">None flagged at intake.</p>}</div></div>
       </div>
-
-      <div className="border border-steel/20 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.16em] text-steel">Evidence principle</p>
-            <p className="mt-2 text-sm leading-relaxed text-paper">
-              Overhaul should extract first, validate second, and ask only when a missing variable can change the decision.
-            </p>
-          </div>
-          <div className="font-mono-num text-xs text-steel">{data.locationLabel || "location pending"}</div>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => onJump(1)} className="border border-steel/30 px-4 py-2 text-xs text-steel hover:border-paper hover:text-paper">Review evidence</button>
-        <button type="button" onClick={() => onJump(2)} className="border border-steel/30 px-4 py-2 text-xs text-steel hover:border-paper hover:text-paper">Adjust context</button>
-      </div>
+      <div className="border border-steel/20 p-5"><p className="text-[10px] uppercase tracking-[0.16em] text-steel">Decision rule</p><p className="mt-2 text-sm leading-relaxed text-paper">Extract first → attach confidence and provenance → validate with engineering logic → ask one targeted question only when the missing variable could change the decision.</p></div>
+      <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onJump(1)} className="border border-steel/30 px-4 py-2 text-xs text-steel hover:border-paper hover:text-paper">Review evidence</button><button type="button" onClick={() => onJump(2)} className="border border-steel/30 px-4 py-2 text-xs text-steel hover:border-paper hover:text-paper">Adjust context</button></div>
     </div>
   );
 }
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-steel/20 p-4">
-      <p className="text-[10px] uppercase tracking-[0.16em] text-steel">{label}</p>
-      <p className="mt-2 text-sm text-paper">{value}</p>
-    </div>
-  );
+  return <div className="border border-steel/20 p-4"><p className="text-[10px] uppercase tracking-[0.16em] text-steel">{label}</p><p className="mt-2 text-sm text-paper">{value}</p></div>;
 }
