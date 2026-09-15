@@ -22,6 +22,7 @@ export function buildingStateFromRecord(record: NormalizedRecord): BuildingState
     hvacCapacityKW: numberOf(record, ["hvacCapacityKW", "hvac_capacity_kw", "rated_capacity_kw", "capacity_kw"]) ?? 0,
     hvacCOP: numberOf(record, ["hvacCOP", "hvac_cop", "cop"]) ?? 0,
     annualCoolingHours: numberOf(record, ["annualCoolingHours", "annual_cooling_hours", "cooling_hours"]) ?? 0,
+    electricityRateINRPerKWh: numberOf(record, ["electricityRateINRPerKWh", "energy_rate_inr_per_kwh", "tariff_inr_per_kwh"]) ?? 0,
   };
 }
 
