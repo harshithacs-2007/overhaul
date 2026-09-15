@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import RoomScanOverlay from "./RoomScanOverlay";
-import { normalizeExtractionObservations } from "@/lib/evidence/normalizeForEngineering";
+import { normalizeExtractionObservations, type EngineeringObservation } from "@/lib/evidence/normalizeForEngineering";
 
 type Scope = "building" | "facility" | "equipment";
 type Mode = "building" | "industry";
@@ -19,6 +19,13 @@ type EvidenceItem = {
   size: number;
   previewUrl: string | null;
   file: File;
+};
+
+type ExtractionPayload = {
+  observations?: EngineeringObservation[];
+  warnings?: string[];
+  model?: string;
+  [key: string]: unknown;
 };
 
 const buildingTypes: Array<[string, string, Industry]> = [
@@ -75,7 +82,7 @@ function inferKind(file: File): EvidenceKind {
 }
 
 async function analyzeEvidence(items: EvidenceItem[], scope: Scope, industry: Industry, onProgress: () => void) {
-  const results: unknown[] = [];
+  const results: Array<Record<string, unknown>> = [];
   const failures: string[] = [];
   let cursor = 0;
   async function worker() {
@@ -91,9 +98,10 @@ async function analyzeEvidence(items: EvidenceItem[], scope: Scope, industry: In
         form.append("subject", scope);
         form.append("industry", industry);
         const response = await fetch("/api/evidence/extract", { method: "POST", body: form });
-        const payload = await response.json() as { result?: unknown; error?: string };
+        const payload = await response.json() as { result?: ExtractionPayload; error?: string };
         if (!response.ok || !payload.result) throw new Error(payload.error || "Evidence analysis failed");
-        results[index] = normalizeExtractionObservations({ ...(payload.result as Record<string, unknown>), evidenceId: item.id, sourceKind: item.kind, sourceName: item.name });
+        const normalized = normalizeExtractionObservations(payload.result);
+        results[index] = { ...normalized, evidenceId: item.id, sourceKind: item.kind, sourceName: item.name };
       } catch (error) {
         failures[index] = `${item.name}: ${error instanceof Error ? error.message : "analysis failed"}`;
       } finally {
@@ -102,7 +110,7 @@ async function analyzeEvidence(items: EvidenceItem[], scope: Scope, industry: In
     }
   }
   await Promise.all(Array.from({ length: Math.min(3, items.length) }, () => worker()));
-  return { results: results.filter(Boolean), failures: failures.filter(Boolean) };
+  return { results: results.filter((result): result is Record<string, unknown> => Boolean(result)), failures: failures.filter(Boolean) };
 }
 
 export default function OverhaulIntakeV2() {
@@ -175,11 +183,15 @@ export default function OverhaulIntakeV2() {
 
   const openScan = () => window.dispatchEvent(new CustomEvent("overhaul:open-room-scan"));
 
-  const numericDetails = () => Object.fromEntries(Object.entries(details).flatMap(([key, value]) => {
-    if (!value.trim()) return [];
-    const number = Number(value);
-    return Number.isFinite(number) ? [[key, number]] : [[key, value]];
-  }));
+  const numericDetails = () => {
+    const next: Record<string, string | number> = {};
+    for (const [key, value] of Object.entries(details)) {
+      if (!value.trim()) continue;
+      const number = Number(value);
+      next[key] = Number.isFinite(number) ? number : value;
+    }
+    return next;
+  };
 
   const startAnalysis = async () => {
     if ((!evidence.length && !scanMeta?.coveragePercent) || analyzing) return;
