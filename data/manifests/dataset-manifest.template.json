@@ -1,0 +1,20 @@
+{
+  "id": "dataset-id",
+  "name": "Dataset name",
+  "domain": "unknown",
+  "format": "csv",
+  "source": "https://example.com/dataset",
+  "license": "",
+  "description": "What this dataset contains and how OVERHAUL will use it.",
+  "paths": ["raw/domain/file.csv"],
+  "extracted": false,
+  "variables": [],
+  "units": {},
+  "timeCoverage": {
+    "start": "",
+    "end": ""
+  },
+  "spatialCoverage": "",
+  "adapter": "",
+  "notes": []
+}
