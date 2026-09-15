@@ -4,60 +4,49 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 8 * 1024 * 1024;
-const MODEL = "gpt-5.6-terra";
+const MODEL = process.env.NEBIUS_VISION_MODEL || "nvidia/nemotron-3-nano-omni";
+const BASE_URL = (process.env.NEBIUS_BASE_URL || "https://api.tokenfactory.us-central1.nebius.com/v1").replace(/\/$/, "");
 
 const schema = {
   type: "object",
   additionalProperties: false,
-  required: ["summary", "detections", "engineering_clues", "coverage_notes"],
+  required: ["summary", "detections", "engineering_clues", "coverage_notes", "visible_details"],
   properties: {
     summary: { type: "string" },
-    detections: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["label", "confidence", "box", "condition", "evidence"],
-        properties: {
-          label: { type: "string" },
-          confidence: { type: "number", minimum: 0, maximum: 1 },
-          box: {
-            type: "object",
-            additionalProperties: false,
-            required: ["x", "y", "width", "height"],
-            properties: {
-              x: { type: "number", minimum: 0, maximum: 1 },
-              y: { type: "number", minimum: 0, maximum: 1 },
-              width: { type: "number", minimum: 0, maximum: 1 },
-              height: { type: "number", minimum: 0, maximum: 1 },
-            },
-          },
-          condition: { type: "string" },
-          evidence: { type: "string" },
-        },
-      },
-    },
+    detections: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "confidence", "box", "condition", "evidence"], properties: {
+      label: { type: "string" }, confidence: { type: "number", minimum: 0, maximum: 1 },
+      box: { type: "object", additionalProperties: false, required: ["x", "y", "width", "height"], properties: {
+        x: { type: "number", minimum: 0, maximum: 1 }, y: { type: "number", minimum: 0, maximum: 1 },
+        width: { type: "number", minimum: 0, maximum: 1 }, height: { type: "number", minimum: 0, maximum: 1 },
+      } },
+      condition: { type: "string" }, evidence: { type: "string" },
+    } } },
     engineering_clues: { type: "array", items: { type: "string" } },
     coverage_notes: { type: "array", items: { type: "string" } },
+    visible_details: { type: "array", items: { type: "object", additionalProperties: false, required: ["field", "value", "confidence"], properties: {
+      field: { type: "string" }, value: { type: "string" }, confidence: { type: "number", minimum: 0, maximum: 1 },
+    } } },
   },
 };
 
 function prompt(scope: string, sector: number, sectorCount: number) {
-  return `You are OVERHAUL computer vision for a live room/facility scan.
+  return `You are OVERHAUL's multimodal perception layer for an engineering retrofit workflow.
 
-This is sector ${sector + 1} of ${sectorCount} in a guided 360-degree visual sweep. Assessment scope: ${scope}.
+This frame is sector ${sector + 1} of ${sectorCount} in a guided visual sweep. Target: ${scope}.
 
-Detect only what is visibly present in the image. Return normalized bounding boxes in x/y/width/height from 0 to 1.
+Identify only what is visibly present. Return normalized bounding boxes in x/y/width/height from 0 to 1.
 
-Look for visible engineering-relevant objects and conditions: HVAC indoor/outdoor units, ducts, diffusers, vents, pipes, valves, pumps, motors, fans, chillers, compressors, boilers, electrical panels, meters, windows, doors, insulation, radiators, lights, ceiling systems, leaks, corrosion, damaged insulation, blocked airflow, clutter around equipment, and visible labels/nameplates.
+Look for engineering-relevant objects and visible conditions: HVAC equipment, ducts, diffusers, vents, pipes, valves, pumps, motors, fans, chillers, compressors, boilers, refrigeration, electrical panels, meters, windows, doors, insulation, radiators, lights, ceilings, leaks, corrosion, damaged insulation, blocked airflow, clutter around equipment, labels and nameplates.
 
-Important:
-- Never invent a hidden specification, capacity, efficiency, temperature, pressure, or geometry.
-- A visual condition is not the same as a measured fault.
-- Use confidence for visual detection confidence only.
-- Keep engineering clues descriptive and evidence-grounded.
-- If something is uncertain, say so.
-- The bounding box should cover the visible object/condition, not the whole room.`;
+Also extract clearly visible labelled details such as manufacturer, model, rated voltage, rated capacity, frequency, serial number, and other nameplate text into visible_details. NEVER infer them from appearance or a model family.
+
+Rules:
+- Never invent hidden specifications, measurements, faults, or dimensions.
+- Visual condition is not a measured fault.
+- Confidence is visual/extraction confidence only.
+- Keep engineering clues evidence-grounded.
+- For uncertain text, omit it rather than guessing.
+- Bounding boxes cover the visible object/condition only.`;
 }
 
 async function toDataUrl(file: File) {
@@ -69,7 +58,7 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const file = form.get("file");
-    const scope = String(form.get("scope") || "building");
+    const scope = String(form.get("scope") || "room");
     const sector = Number(form.get("sector") || 0);
     const sectorCount = Math.max(1, Number(form.get("sectorCount") || 12));
 
@@ -77,33 +66,34 @@ export async function POST(request: Request) {
     if (file.size <= 0 || file.size > MAX_BYTES) return NextResponse.json({ error: "Scan frame must be <= 8 MB." }, { status: 413 });
     if (!file.type.startsWith("image/")) return NextResponse.json({ error: "Scan frame must be an image." }, { status: 415 });
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: "Computer vision is not configured on this deployment." }, { status: 503 });
+    const apiKey = process.env.NEBIUS_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: "Nebius computer vision is not configured on this deployment." }, { status: 503 });
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch(`${BASE_URL}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: MODEL,
-        input: [{ role: "user", content: [
-          { type: "input_text", text: prompt(scope, sector, sectorCount) },
-          { type: "input_image", image_url: await toDataUrl(file), detail: "high" },
-        ]}],
-        text: { format: { type: "json_schema", name: "overhaul_room_scan", strict: true, schema } },
-        max_output_tokens: 3500,
-        store: false,
+        messages: [{ role: "user", content: [
+          { type: "text", text: prompt(scope, sector, sectorCount) },
+          { type: "image_url", image_url: { url: await toDataUrl(file) } },
+        ] }],
+        response_format: { type: "json_schema", json_schema: { name: "overhaul_room_scan", strict: true, schema } },
+        temperature: 0.1,
+        max_tokens: 3500,
       }),
     });
 
     if (!response.ok) {
-      console.error("Room scan vision failed", response.status, (await response.text()).slice(0, 500));
+      console.error("Nebius vision failed", response.status, (await response.text()).slice(0, 600));
       return NextResponse.json({ error: "Computer vision analysis failed." }, { status: 502 });
     }
 
-    const payload = await response.json() as { output_text?: string };
-    if (!payload.output_text) return NextResponse.json({ error: "Computer vision returned no structured result." }, { status: 502 });
-    const result = JSON.parse(payload.output_text);
-    return NextResponse.json({ result: { ...result, model: MODEL, sector, sectorCount } });
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) return NextResponse.json({ error: "Computer vision returned no structured result." }, { status: 502 });
+    const result = JSON.parse(content);
+    return NextResponse.json({ result: { ...result, model: MODEL, provider: "Nebius Token Factory / NVIDIA Nemotron", sector, sectorCount } });
   } catch (error) {
     console.error("Room scan route error", error);
     return NextResponse.json({ error: "Computer vision analysis failed." }, { status: 500 });
