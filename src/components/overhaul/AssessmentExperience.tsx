@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Scope = "building" | "facility" | "equipment";
 type Assessment = { assessmentSubject?: Scope; siteName?: string | null; assetClass?: string | null; evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }> };
-type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number }> };
+type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number }>; model?: string; sourceKind?: string; sourceName?: string };
 type Values = Record<string, number | string | null>;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -51,6 +51,30 @@ export default function AssessmentExperience() {
     }
     return next;
   }, [extracts, supplemental]);
+
+  useEffect(() => {
+    if (!assessment || !extracts.length || sessionStorage.getItem("overhaul:supabase-project-id")) return;
+    let cancelled = false;
+    const persist = async () => {
+      try {
+        const response = await fetch("/api/persistence/snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assessment, extractions: extracts, supplemental }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Persistence failed");
+        if (!cancelled && payload.projectId) {
+          sessionStorage.setItem("overhaul:supabase-project-id", payload.projectId);
+          sessionStorage.setItem("overhaul:supabase-asset-id", payload.assetId || "");
+        }
+      } catch (error) {
+        console.warn("Supabase persistence unavailable; continuing with local assessment state.", error);
+      }
+    };
+    void persist();
+    return () => { cancelled = true; };
+  }, [assessment, extracts, supplemental]);
 
   const scope = assessment?.assessmentSubject || "building";
   const title = assessment?.siteName || assessment?.assetClass || (scope === "equipment" ? "Asset model" : "Site model");
