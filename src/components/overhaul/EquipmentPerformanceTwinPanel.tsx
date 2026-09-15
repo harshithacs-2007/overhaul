@@ -79,10 +79,6 @@ export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: 
     return [{ key, value: o.numericValue, unit: o.unit ?? "", confidence: o.confidence }];
   }), [flat]);
   const equipmentClass = detectClass(assetClass, flat);
-  const explicitExpectedPower = useMemo(() => {
-    const hit = flat.find((o) => /expected.*power|power.*expected/i.test(o.field) && o.numericValue != null && Number.isFinite(o.numericValue));
-    return hit?.numericValue ?? null;
-  }, [flat]);
 
   const expected = useMemo<ExpectedEquipmentSignal[]>(() => {
     const ratedCapacity = num(observations, "capacity_kw");
@@ -91,11 +87,12 @@ export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: 
     if (ratedCapacity != null && expectedEfficiency != null && ratedCapacity > 0 && expectedEfficiency > 0) {
       return [{ key: "power_kw", expected: ratedCapacity / expectedEfficiency, unit: "kW", toleranceRelative: 0.1, reference }];
     }
+    const explicitExpectedPower = num(observations, "power_kw_expected" as EquipmentSignalKey);
     if (explicitExpectedPower != null && explicitExpectedPower > 0) {
       return [{ key: "power_kw", expected: explicitExpectedPower, unit: "kW", toleranceRelative: 0.1, reference }];
     }
     return [];
-  }, [explicitExpectedPower, observations]);
+  }, [observations]);
 
   const result = useMemo(() => buildEquipmentTwin({ equipmentClass, observations, expected }), [equipmentClass, observations, expected]);
   const currentPower = num(observations, "power_kw");
@@ -136,8 +133,11 @@ export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: 
           <div className="flex flex-wrap gap-2 font-mono text-[8px] uppercase tracking-[0.12em] text-steel">
             {["capture", "model", "compare"].map((p) => <button key={p} type="button" onClick={() => setPhase(p as typeof phase)} className={`border px-2 py-1 ${phase === p ? "border-teal text-teal" : "border-steel/15"}`}>{p}</button>)}
           </div>
+
           <div className="relative mt-5 min-h-[320px] overflow-hidden border border-steel/15 bg-[radial-gradient(circle_at_50%_50%,rgba(52,211,188,0.08),transparent_42%)]">
-            <div className="absolute inset-0 grid grid-cols-8 grid-rows-6 opacity-20">{Array.from({ length: 48 }).map((_, i) => <div key={i} className="border-r border-b border-steel/15" />)}</div>
+            <div className="absolute inset-0 grid grid-cols-8 grid-rows-6 opacity-20">
+              {Array.from({ length: 48 }).map((_, i) => <div key={i} className="border-r border-b border-steel/15" />)}
+            </div>
             <motion.div animate={{ rotateY: phase === "model" ? [0, 8, -8, 0] : 0, scale: phase === "compare" ? 1.04 : 1 }} transition={{ duration: 1.8, repeat: phase === "model" ? Infinity : 0 }} className="absolute left-1/2 top-1/2 h-40 w-64 -translate-x-1/2 -translate-y-1/2 [transform-style:preserve-3d]">
               <div className="absolute inset-0 border-2 border-paper/40 bg-paper/[0.025]" />
               <div className="absolute -left-5 top-7 h-24 w-5 border border-teal/40 bg-teal/[0.04]" />
@@ -145,9 +145,12 @@ export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: 
               {[0, 1, 2].map((i) => <motion.div key={i} animate={{ rotate: phase === "compare" ? 360 : 0 }} transition={{ duration: 2.5 - i * .25, repeat: phase === "compare" ? Infinity : 0, ease: "linear" }} className="absolute h-12 w-12 rounded-full border border-teal/50" style={{ left: `${18 + i * 30}%`, bottom: "-18px" }} />)}
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center"><p className="font-mono text-[9px] uppercase text-teal">{CLASS_LABELS[equipmentClass]}</p><p className="mt-2 text-[10px] text-steel">{phase === "capture" ? "evidence anchors" : phase === "model" ? "semantic + parametric model" : "healthy ↔ current"}</p></div>
             </motion.div>
-            <div className="absolute bottom-4 left-4 right-4 grid gap-2 sm:grid-cols-4">{["Identity", "Geometry", "Performance", "Condition"].map((x, i) => <div key={x} className="border border-steel/15 bg-navy/80 p-2"><p className="font-mono text-[7px] uppercase text-steel">0{i + 1} · {x}</p><p className="mt-1 text-[10px]">{i === 0 ? (assetClass || "unknown") : i === 1 ? `${observations.length} linked signals` : i === 2 ? (expected.length ? "reference ready" : "reference needed") : (result.healthScore != null ? `${result.healthScore.toFixed(0)} / 100` : "not evaluated")}</p></div>)}</div>
+            <div className="absolute bottom-4 left-4 right-4 grid gap-2 sm:grid-cols-4">
+              {["Identity", "Geometry", "Performance", "Condition"].map((x, i) => <div key={x} className="border border-steel/15 bg-navy/80 p-2"><p className="font-mono text-[7px] uppercase text-steel">0{i + 1} · {x}</p><p className="mt-1 text-[10px]">{i === 0 ? (assetClass || "unknown") : i === 1 ? `${observations.length} linked signals` : i === 2 ? (expected.length ? "reference ready" : "reference needed") : (result.healthScore != null ? `${result.healthScore.toFixed(0)} / 100` : "not evaluated")}</p></div>)}
+            </div>
           </div>
         </div>
+
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
             <Stat label="Class" value={CLASS_LABELS[equipmentClass]} />
@@ -155,15 +158,30 @@ export default function EquipmentPerformanceTwinPanel({ assetClass, extracts }: 
             <Stat label="Current power" value={currentPower != null ? `${currentPower.toFixed(1)} kW` : "Evidence needed"} />
             <Stat label="Healthy reference" value={expected.length ? `${expected.length} signals` : "Not established"} />
           </div>
-          <div className="border border-clay/25 bg-clay/5 p-4"><p className="font-mono text-[8px] uppercase text-clay">Evidence gate</p><p className="mt-2 text-xs leading-5">{expected.length ? "Independent reference available for comparison." : "Take a clear nameplate/performance-sheet photo or provide a validated operating reference before OVERHAUL claims degradation."}</p></div>
+          <div className="border border-clay/25 bg-clay/5 p-4">
+            <p className="font-mono text-[8px] uppercase text-clay">Evidence gate</p>
+            <p className="mt-2 text-xs leading-5">{expected.length ? "Independent reference available for comparison." : "Take a clear nameplate/performance-sheet photo or provide a validated operating reference before OVERHAUL claims degradation."}</p>
+          </div>
         </div>
       </div>
+
       <div className="mt-4 grid gap-3 md:grid-cols-3">
-        {result.residuals.length ? result.residuals.map((r) => <div key={r.key} className="border border-steel/15 p-4"><div className="flex items-center justify-between"><span className="font-mono text-[8px] uppercase text-steel">{r.key.replaceAll("_", " ")}</span><span className={`font-mono text-[8px] uppercase ${r.severity === "critical" ? "text-clay" : "text-teal"}`}>{r.severity}</span></div><div className="mt-3 flex items-end justify-between"><div><p className="text-[8px] uppercase text-steel">actual</p><p className="text-xl">{r.observed.toFixed(1)} {r.unit}</p></div><div className="text-right"><p className="text-[8px] uppercase text-steel">healthy</p><p className="text-xl text-teal">{r.expected.toFixed(1)} {r.unit}</p></div></div><p className="mt-2 font-mono text-[9px] text-steel">Δ {((r.relativeResidual) * 100).toFixed(1)}%</p></div>) : <div className="border border-steel/15 p-4 md:col-span-3"><p className="font-mono text-[8px] uppercase text-steel">Comparison</p><p className="mt-2 text-sm">No valid independent reference is currently available. The model is intentionally not scoring the machine.</p></div>}
+        {result.residuals.length ? result.residuals.map((r) => {
+          const unit = result.expected.find((e) => e.key === r.key)?.unit ?? "";
+          return <div key={r.key} className="border border-steel/15 p-4"><div className="flex items-center justify-between"><span className="font-mono text-[8px] uppercase text-steel">{r.key.replaceAll("_", " ")}</span><span className={`font-mono text-[8px] uppercase ${r.severity === "critical" ? "text-clay" : "text-teal"}`}>{r.severity}</span></div><div className="mt-3 flex items-end justify-between"><div><p className="text-[8px] uppercase text-steel">actual</p><p className="text-xl">{r.observed.toFixed(1)} {unit}</p></div><div className="text-right"><p className="text-[8px] uppercase text-steel">healthy</p><p className="text-xl text-teal">{r.expected.toFixed(1)} {unit}</p></div></div><p className="mt-2 font-mono text-[9px] text-steel">Δ {((r.relativeResidual) * 100).toFixed(1)}%</p></div>;
+        }) : (
+          <div className="border border-steel/15 p-4 md:col-span-3"><p className="font-mono text-[8px] uppercase text-steel">Comparison</p><p className="mt-2 text-sm">No valid independent reference is currently available. The model is intentionally not scoring the machine.</p></div>
+        )}
       </div>
-      <div className="mt-4 flex flex-col gap-3 border border-steel/15 p-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="font-mono text-[8px] uppercase text-steel">Retrofit consequence</p><p className="mt-1 text-xs">A confirmed performance deviation can flow into <span className="text-paper">repair → controls → retrofit → replacement</span> ranking, alongside cost, energy, carbon and downtime constraints.</p></div><div className="font-mono text-[8px] uppercase text-steel">Blender generator · parametric · editable</div></div>
+
+      <div className="mt-4 flex flex-col gap-3 border border-steel/15 p-4 lg:flex-row lg:items-center lg:justify-between">
+        <div><p className="font-mono text-[8px] uppercase text-steel">Retrofit consequence</p><p className="mt-1 text-xs">A confirmed performance deviation can flow into <span className="text-paper">repair → controls → retrofit → replacement</span> ranking, alongside cost, energy, carbon and downtime constraints.</p></div>
+        <div className="font-mono text-[8px] uppercase text-steel">Blender generator · parametric · editable</div>
+      </div>
     </section>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) { return <div className="border border-steel/15 p-3"><p className="font-mono text-[8px] uppercase text-steel">{label}</p><p className="mt-1 text-lg">{value}</p></div>; }
+function Stat({ label, value }: { label: string; value: string }) {
+  return <div className="border border-steel/15 p-3"><p className="font-mono text-[8px] uppercase text-steel">{label}</p><p className="mt-1 text-lg">{value}</p></div>;
+}
