@@ -1,3 +1,4 @@
+export * from "./aggregateSignals";
 export * from "./catalog";
 export * from "./manifest";
 export * from "./normalize";
