@@ -15,15 +15,18 @@ import DigitalTwinConsole from "./DigitalTwinConsole";
 import DecisionProvenancePanel from "./DecisionProvenancePanel";
 import RetrofitIntelligenceSuite from "./RetrofitIntelligenceSuite";
 import MachineRetrofitMatrix from "./MachineRetrofitMatrix";
+import EquipmentPerformanceTwinPanel from "./EquipmentPerformanceTwinPanel";
+import MachineEvidenceComparePanel from "./MachineEvidenceComparePanel";
 import ScanFusionPanel from "./ScanFusionPanel";
 import { useEffect, useMemo, useState } from "react";
 import { sanitizeTwinModel, type TwinModel } from "@/lib/engineering/twinModel";
 
 type Scope = "building" | "facility" | "equipment";
-type Assessment = { assessmentSubject?: Scope; siteName?: string | null; assetClass?: string | null; industry?: string; assessmentGoal?: string; status?: string; evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }> };
+type Assessment = { assessmentSubject?: Scope; siteName?: string | null; assetClass?: string | null; industry?: string; assessmentGoal?: string; status?: string; assetAgeYears?: number | null; evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }> };
 type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number; sourceText: string }>; warnings?: string[]; model?: string; sourceKind?: string; sourceName?: string; evidenceType?: string };
 type Values = Record<string, number | string | null>;
 type RoomScan = { scope?: Scope; coveragePercent?: number; completed?: boolean; sectors?: Array<{ id: string; sector: number; result?: { detections?: Array<{ label: string; confidence: number; condition?: string; evidence?: string }> } }> } | null;
+type ScanFusion = Record<string, unknown> | null;
 type ClimateContext = { location?: string; temperature?: number; humidity?: number; min?: number; max?: number; rain?: number; source?: string; fetchedAt?: string } | null;
 
 function readJson<T>(key: string, fallback: T): T { try { return JSON.parse(sessionStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; } }
@@ -34,6 +37,7 @@ export default function AssessmentExperience() {
   const [extracts, setExtracts] = useState<Extraction[]>([]);
   const [supplemental, setSupplemental] = useState<Values>({});
   const [roomScan, setRoomScan] = useState<RoomScan>(null);
+  const [scanFusion, setScanFusion] = useState<ScanFusion>(null);
   const [climate, setClimate] = useState<ClimateContext>(null);
   const [twin, setTwin] = useState<TwinModel | null>(null);
 
@@ -43,6 +47,7 @@ export default function AssessmentExperience() {
       setExtracts(readJson<Extraction[]>("overhaul:evidence-extractions", []));
       setSupplemental(readJson<Values>("overhaul:supplemental-values", {}));
       setRoomScan(readJson<RoomScan>("overhaul:room-scan", null));
+      setScanFusion(readJson<ScanFusion>("overhaul:scan-fusion", null));
       setClimate(readJson<ClimateContext>("overhaul:climate-context", null));
       setTwin(sanitizeTwinModel(readJson<unknown>("overhaul:twin-model", null)));
     };
@@ -51,12 +56,14 @@ export default function AssessmentExperience() {
     window.addEventListener("overhaul:evidence-change", sync);
     window.addEventListener("overhaul:climate-change", sync);
     window.addEventListener("overhaul:twin-change", sync);
+    window.addEventListener("overhaul:scan-fusion-change", sync);
     window.addEventListener("storage", sync);
     return () => {
       window.removeEventListener("overhaul:supplemental-change", sync);
       window.removeEventListener("overhaul:evidence-change", sync);
       window.removeEventListener("overhaul:climate-change", sync);
       window.removeEventListener("overhaul:twin-change", sync);
+      window.removeEventListener("overhaul:scan-fusion-change", sync);
       window.removeEventListener("storage", sync);
     };
   }, []);
@@ -75,7 +82,7 @@ export default function AssessmentExperience() {
       try {
         const projectId = sessionStorage.getItem("overhaul:supabase-project-id") || undefined;
         const assetId = sessionStorage.getItem("overhaul:supabase-asset-id") || undefined;
-        const response = await fetch("/api/persistence/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, assetId, assessment, extractions: extracts, supplemental, roomScan, climate, twinModel: twin }) });
+        const response = await fetch("/api/persistence/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, assetId, assessment, extractions: extracts, supplemental, roomScan, scanFusion, climate, twinModel: twin }) });
         const payload = await response.json() as { projectId?: string; assetId?: string; error?: string };
         if (!response.ok) throw new Error(payload.error || "Persistence failed");
         if (!cancelled && payload.projectId) { sessionStorage.setItem("overhaul:supabase-project-id", payload.projectId); sessionStorage.setItem("overhaul:supabase-asset-id", payload.assetId || ""); }
@@ -83,7 +90,7 @@ export default function AssessmentExperience() {
     };
     void persist();
     return () => { cancelled = true; };
-  }, [assessment, extracts, supplemental, roomScan, climate, twin]);
+  }, [assessment, extracts, supplemental, roomScan, scanFusion, climate, twin]);
 
   const scope = assessment?.assessmentSubject || "building";
   const title = assessment?.siteName || assessment?.assetClass || (scope === "equipment" ? "Asset model" : "Site model");
@@ -102,6 +109,7 @@ export default function AssessmentExperience() {
       {twin ? <DigitalTwinConsole scope={scope} values={values} /> : null}
       <DatasetIntelligencePanel extracts={extracts}/><DatasetPhysicsBridgePanel extracts={extracts} values={values}/><RegionalConstraintPanel climate={climate} values={values}/><ModelEvidencePanel/>
       {roomScan?.sectors?.length ? <ScanFusionPanel /> : null}
+      {scope === "equipment" ? <><MachineEvidenceComparePanel assetClass={assessment?.assetClass} assetAgeYears={assessment?.assetAgeYears} values={values} extracts={extracts}/><EquipmentPerformanceTwinPanel assetClass={assessment?.assetClass} extracts={extracts}/></> : null}
       {twin ? <TwinObjectInspector scan={roomScan} values={values}/> : null}
       <RetrofitPathfinder scope={scope} values={values}/>{scope === "equipment" ? <MachineRetrofitMatrix assetClass={assessment?.assetClass} values={values}/> : null}<RetrofitStressLab scope={scope} values={values} climate={climate}/><RetrofitIntelligenceSuite scope={scope} values={values} extracts={extracts} climate={climate}/><UniversalDecisionWorkspaceV2/>
       {twin ? <AssetTwinViewport scope={scope} title={title} assetClass={assetClass} evidenceIds={evidenceIds} values={values} twin={twin}/> : null}<DecisionProvenancePanel scope={scope} label={title} extracts={extracts}/>
