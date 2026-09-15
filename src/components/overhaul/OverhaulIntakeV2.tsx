@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import RoomScanOverlay from "./RoomScanOverlay";
 
 type Scope = "building" | "facility" | "equipment";
 type Goal = "energy" | "performance" | "comfort" | "reliability" | "retrofit";
@@ -42,6 +43,7 @@ export default function OverhaulIntakeV2() {
   const [goal, setGoal] = useState<Goal>("retrofit");
   const [equipmentType, setEquipmentType] = useState("");
   const [siteName, setSiteName] = useState("");
+  const [assetAge, setAssetAge] = useState("");
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -122,13 +124,15 @@ export default function OverhaulIntakeV2() {
         assessmentSubject: scope, assessmentGoal: goal, industry,
         siteName: siteName.trim() || null,
         assetClass: scope === "equipment" ? equipmentType || "Other machinery" : null,
+        assetAgeYears: assetAge.trim() ? Number(assetAge) : null,
         createdAt: new Date().toISOString(),
         evidence: evidence.map(({ file: _file, previewUrl: _preview, ...item }) => item),
-        context: { industry, siteName: siteName.trim() || null, assetClass: scope === "equipment" ? equipmentType || "Other machinery" : null },
+        context: { industry, siteName: siteName.trim() || null, assetClass: scope === "equipment" ? equipmentType || "Other machinery" : null, assetAgeYears: assetAge.trim() ? Number(assetAge) : null },
         status: "evidence-analyzed" as const,
       };
       sessionStorage.setItem("overhaul:evidence-extractions", JSON.stringify(results));
       sessionStorage.setItem("overhaul:assessment", JSON.stringify(assessment));
+      window.dispatchEvent(new CustomEvent("overhaul:evidence-change"));
       router.push("/assessment");
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : "Evidence analysis failed.");
@@ -139,9 +143,11 @@ export default function OverhaulIntakeV2() {
   const scopeSummary = scope === "building" ? "Envelope · HVAC · comfort" : scope === "facility" ? "Systems · production · fleet" : "Identity · performance · condition";
   const activeGoal = goals.find(([value]) => value === goal)?.[1] ?? "Retrofit";
   const readiness = evidence.length ? Math.min(92, 24 + evidence.length * 12) : 8;
+  const scanLabel = scope === "equipment" ? "Scan machine / appliance" : "Scan room / space";
 
   return (
     <main className="min-h-screen bg-[#050707] text-paper">
+      <RoomScanOverlay scope={scope} />
       <div className="flex min-h-screen">
         <aside className="hidden w-[250px] shrink-0 border-r border-steel/15 bg-[#070909] lg:flex lg:flex-col">
           <div className="px-6 py-7">
@@ -190,7 +196,7 @@ export default function OverhaulIntakeV2() {
                         <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-teal/30 bg-teal/[0.04] font-mono text-lg text-teal">＋</div>
                         <p className="mt-4 font-display text-2xl">Inspect, don't interrogate.</p>
                         <p className="mt-2 text-[10px] leading-5 text-steel">Give OVERHAUL the physical evidence. It extracts identity, geometry and operating clues, then asks only for measurements that can change the decision.</p>
-                        <div className="mt-5 flex flex-wrap justify-center gap-2"><button type="button" onClick={() => fileInput.current?.click()} className="border border-paper/30 bg-paper px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-navy">Add evidence</button><button type="button" onClick={openCamera} className="border border-teal/40 px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-teal">Use camera</button></div>
+                        <div className="mt-5 flex flex-wrap justify-center gap-2"><button type="button" onClick={() => fileInput.current?.click()} className="border border-paper/30 bg-paper px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-navy">Add evidence</button><button type="button" onClick={() => { const scanButton = document.querySelector<HTMLButtonElement>("button[data-room-scan]"); scanButton?.click(); }} className="border border-teal/40 px-4 py-2 font-mono text-[8px] uppercase tracking-[0.12em] text-teal">{scanLabel}</button></div>
                         <p className="mt-3 font-mono text-[7px] uppercase tracking-[0.1em] text-steel">Drop files anywhere in this canvas</p>
                       </div>
                     </div>
@@ -219,7 +225,10 @@ export default function OverhaulIntakeV2() {
                   <div className="border border-steel/15 bg-[#080c0c] p-4 sm:p-5">
                     <div className="flex items-center justify-between"><div><p className="font-mono text-[8px] uppercase tracking-[0.14em] text-steel">Context</p><p className="mt-1 text-[10px] text-steel">Minimal metadata; evidence does the heavy lifting.</p></div><span className="font-mono text-[8px] text-steel">optional</span></div>
                     <div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="block"><span className="font-mono text-[7px] uppercase text-steel">Site</span><input value={siteName} onChange={(e) => setSiteName(e.target.value)} placeholder="Untitled site" className="mt-2 w-full border-b border-steel/20 bg-transparent py-2 text-[11px] outline-none focus:border-teal"/></label><label className="block"><span className="font-mono text-[7px] uppercase text-steel">Industry</span><select value={industry} onChange={(e) => setIndustry(e.target.value as Industry)} className="mt-2 w-full border-b border-steel/20 bg-[#080c0c] py-2 text-[11px] outline-none focus:border-teal">{industries.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
-                    {scope === "equipment" ? <label className="mt-4 block"><span className="font-mono text-[7px] uppercase text-steel">Known class (optional)</span><select value={equipmentType} onChange={(e) => setEquipmentType(e.target.value)} className="mt-2 w-full border-b border-steel/20 bg-[#080c0c] py-2 text-[11px] outline-none focus:border-teal"><option value="">Let evidence identify it</option>{equipmentOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label> : null}
+                    {scope === "equipment" ? <>
+                      <label className="mt-4 block"><span className="font-mono text-[7px] uppercase text-steel">Known class (optional)</span><select value={equipmentType} onChange={(e) => setEquipmentType(e.target.value)} className="mt-2 w-full border-b border-steel/20 bg-[#080c0c] py-2 text-[11px] outline-none focus:border-teal"><option value="">Let evidence identify it</option>{equipmentOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+                      <label className="mt-4 block"><span className="font-mono text-[7px] uppercase text-steel">Approximate age</span><input inputMode="numeric" type="number" min="0" max="100" value={assetAge} onChange={(e) => setAssetAge(e.target.value)} placeholder="Unknown? leave blank" className="mt-2 w-full border-b border-steel/20 bg-transparent py-2 text-[11px] outline-none focus:border-teal"/><p className="mt-1 text-[8px] text-steel">Used only as lifecycle context. It does not create a performance measurement.</p></label>
+                    </> : null}
                   </div>
                 </div>
               </div>
