@@ -2,6 +2,7 @@
 
 import UniversalDecisionWorkspaceV2 from "./UniversalDecisionWorkspaceV2";
 import AssetTwinViewport from "./AssetTwinViewport";
+import LiveTwinStudio from "./LiveTwinStudio";
 import DigitalTwinConsole from "./DigitalTwinConsole";
 import DecisionProvenancePanel from "./DecisionProvenancePanel";
 import { useEffect, useMemo, useState } from "react";
@@ -102,6 +103,7 @@ export default function AssessmentExperience() {
   return <>
     <UniversalDecisionWorkspaceV2 />
     <div className="mx-auto max-w-[1600px] space-y-5 px-4 pb-12 sm:px-7 lg:px-10">
+      <LiveTwinStudio scope={scope} title={title} values={values} />
       <AssetTwinViewport scope={scope} title={title} assetClass={assetClass} evidenceIds={evidenceIds} values={values} />
       <DigitalTwinConsole scope={scope} values={values} />
       <DecisionProvenancePanel scope={scope} label={title} extracts={extracts} />
