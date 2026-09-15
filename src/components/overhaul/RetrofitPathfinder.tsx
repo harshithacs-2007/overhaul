@@ -32,6 +32,29 @@ function listMissing(parts: Array<[string, boolean]>) {
   return parts.filter(([, ready]) => !ready).map(([label]) => label);
 }
 
+function buildingBaseline(values: Values, overrides: { outdoorTempC?: number } = {}) {
+  const floorArea = n(values, "floor_area_m2", "floor_area")!;
+  const ua = n(values, "envelope_ua_w_per_k", "envelope_ua")!;
+  const outdoor = Number.isFinite(Number(values.outdoor_temp_c)) ? Number(values.outdoor_temp_c) : Number(values.design_outdoor_temp_c);
+  const indoor = Number.isFinite(Number(values.indoor_temp_c)) ? Number(values.indoor_temp_c) : Number(values.temperature_c);
+  const capacity = n(values, "capacity_kw")!;
+  const cop = n(values, "efficiency", "cop")!;
+  const hours = n(values, "annual_cooling_hours", "cooling_hours")!;
+  return {
+    floorAreaM2: floorArea,
+    envelopeUA_W_per_K: ua,
+    ventilationM3s: n(values, "ventilation_m3s") ?? 0,
+    outdoorTempC: overrides.outdoorTempC ?? outdoor,
+    indoorTempC: indoor,
+    solarGainKW: n(values, "solar_gain_kw") ?? 0,
+    internalGainKW: n(values, "internal_gain_kw") ?? 0,
+    hvacCapacityKW: capacity,
+    hvacCOP: cop,
+    annualCoolingHours: hours,
+    electricityRateINRPerKWh: n(values, "electricity_rate_inr_per_kwh", "electricity_rate", "tariff_inr_per_kwh") ?? 0,
+  };
+}
+
 function writeSupplemental(key: string, value: number | null) {
   try {
     const current = JSON.parse(sessionStorage.getItem("overhaul:supplemental-values") || "{}") as Record<string, unknown>;
@@ -114,25 +137,31 @@ export default function RetrofitPathfinder({ scope, values }: { scope: Scope; va
     const proposedEfficiency = n(values, "proposed_efficiency", "proposed_cop");
     const baselineReady = floorArea != null && ua != null && Number.isFinite(outdoor) && Number.isFinite(indoor) && capacity != null && cop != null && hours != null && rate != null;
     const candidates: Pathway[] = [];
+    const unresolvedThermalInputs = listMissing([
+      ["ventilation", n(values, "ventilation_m3s") != null],
+      ["solar gain", n(values, "solar_gain_kw") != null],
+      ["internal gains", n(values, "internal_gain_kw") != null],
+    ]);
+    const partialNote = unresolvedThermalInputs.length ? ` Partial thermal model: ${unresolvedThermalInputs.join(" · ")} not established, so those terms are excluded rather than guessed.` : " Full supplied thermal inputs are available.";
 
     const envelopeMissing = listMissing([
       ["floor area", floorArea != null], ["baseline envelope UA", ua != null], ["outdoor design condition", Number.isFinite(outdoor)], ["indoor target condition", Number.isFinite(indoor)], ["HVAC capacity", capacity != null], ["HVAC COP / efficiency", cop != null], ["annual cooling hours", hours != null], ["electricity rate", rate != null], ["existing R-value", currentR != null], ["proposed R-value", proposedR != null],
     ]);
 
     if (baselineReady && proposedR != null && proposedR > 0 && currentR != null && proposedR !== currentR) {
-      const baseline = { floorAreaM2: floorArea!, envelopeUA_W_per_K: ua!, ventilationM3s: 0, outdoorTempC: outdoor, indoorTempC: indoor, solarGainKW: 0, internalGainKW: 0, hvacCapacityKW: capacity!, hvacCOP: cop!, annualCoolingHours: hours!, electricityRateINRPerKWh: rate! };
+      const baseline = buildingBaseline(values);
       const proposedUA = floorArea! / proposedR;
-      candidates.push({ id: "envelope", title: "Envelope retrofit", mechanism: "Reduce envelope heat transfer, then propagate the new load through HVAC power and annual energy.", gate: "Floor area, envelope UA, indoor/outdoor boundary, HVAC performance, cooling hours and both R-values are established.", computable: true, result: simulatePhysicsScenario({ subject: scope === "facility" ? "facility" : "building", baseline, retrofit: { envelopeUA_W_per_K: proposedUA } }) });
+      candidates.push({ id: "envelope", title: "Envelope retrofit", mechanism: `Reduce envelope heat transfer, then propagate the new load through HVAC power and annual energy.${partialNote}`, gate: `Floor area, envelope UA, indoor/outdoor boundary, HVAC performance, cooling hours and both R-values are established.${partialNote}`, computable: true, result: simulatePhysicsScenario({ subject: scope === "facility" ? "facility" : "building", baseline, retrofit: { envelopeUA_W_per_K: proposedUA } }) });
     } else {
-      candidates.push({ id: "envelope", title: "Envelope retrofit", mechanism: "Model load reduction from insulation/envelope improvements before sizing HVAC consequences.", gate: envelopeMissing.length ? `Needs: ${envelopeMissing.join(" · ")}.` : "The proposed R-value must differ from the existing R-value.", computable: false, input: { key: "proposed_r_value_m2k_w", label: "Target envelope R-value", placeholder: currentR != null ? `Current: ${currentR}` : "From material/build-up evidence", unit: "m²K/W" } });
+      candidates.push({ id: "envelope", title: "Envelope retrofit", mechanism: "Model load reduction from insulation/envelope improvements before sizing HVAC consequences.", gate: envelopeMissing.length ? `Needs: ${envelopeMissing.join(" · ")}.${unresolvedThermalInputs.length ? ` Available model will remain partial until ${unresolvedThermalInputs.join(" and ")} are established.` : ""}` : "The proposed R-value must differ from the existing R-value.", computable: false, input: { key: "proposed_r_value_m2k_w", label: "Target envelope R-value", placeholder: currentR != null ? `Current: ${currentR}` : "From material/build-up evidence", unit: "m²K/W" } });
     }
 
     const hvacMissing = listMissing([
       ["floor area", floorArea != null], ["envelope UA", ua != null], ["indoor/outdoor boundary", Number.isFinite(outdoor) && Number.isFinite(indoor)], ["HVAC capacity", capacity != null], ["baseline COP / efficiency", cop != null], ["annual cooling hours", hours != null], ["electricity rate", rate != null], ["proposed HVAC efficiency", proposedEfficiency != null],
     ]);
     if (baselineReady && proposedEfficiency != null && proposedEfficiency > 0 && proposedEfficiency !== cop) {
-      const baseline = { floorAreaM2: floorArea!, envelopeUA_W_per_K: ua!, ventilationM3s: 0, outdoorTempC: outdoor, indoorTempC: indoor, solarGainKW: 0, internalGainKW: 0, hvacCapacityKW: capacity!, hvacCOP: cop!, annualCoolingHours: hours!, electricityRateINRPerKWh: rate! };
-      candidates.push({ id: "hvac-efficiency", title: "HVAC efficiency upgrade", mechanism: "Hold the modeled thermal load constant and propagate a new COP/efficiency through electrical power and annual energy.", gate: "Baseline HVAC model and proposed efficiency are established.", computable: true, result: simulatePhysicsScenario({ subject: scope === "facility" ? "facility" : "building", baseline, retrofit: { hvacCOP: proposedEfficiency } }) });
+      const baseline = buildingBaseline(values);
+      candidates.push({ id: "hvac-efficiency", title: "HVAC efficiency upgrade", mechanism: `Hold the evidence-defined thermal load constant and propagate a new COP/efficiency through electrical power and annual energy.${partialNote}`, gate: `Baseline HVAC model and proposed efficiency are established.${partialNote}`, computable: true, result: simulatePhysicsScenario({ subject: scope === "facility" ? "facility" : "building", baseline, retrofit: { hvacCOP: proposedEfficiency } }) });
     } else {
       candidates.push({ id: "hvac-efficiency", title: "HVAC efficiency upgrade", mechanism: "Evaluate a better-performing HVAC option without guessing its COP.", gate: hvacMissing.length ? `Needs: ${hvacMissing.join(" · ")}.` : "Proposed efficiency must differ from the baseline.", computable: false, input: { key: "proposed_efficiency", label: "Target HVAC efficiency", placeholder: cop != null ? `Current: ${cop}` : "From equipment datasheet", unit: "COP / ratio" } });
     }
