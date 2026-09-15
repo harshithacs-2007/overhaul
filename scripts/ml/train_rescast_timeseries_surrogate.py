@@ -1,9 +1,10 @@
 """Train a compact, exportable RESCAST time-series screening model.
 
 The public RESCAST-100k release contains a massive 15-minute building-energy
-series alongside static house features. This trainer samples rows from parquet
-shards, builds physically meaningful weather/setpoint/time features, and fits a
-standardized ridge model. It never uses building_id as a predictive feature.
+series alongside static house features. This trainer samples parquet fragments
+and row groups instead of scanning the full series, builds physically meaningful
+weather/setpoint/time features, and fits a standardized ridge model. It never
+uses building_id as a predictive feature.
 
 The artifact is a screening model for expected electrical load. It is not a
 replacement for calibrated simulation, measurement or the deterministic
@@ -19,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 
 SEED = 42
 MAX_ROWS = 500_000
@@ -38,22 +40,54 @@ TIME_COLUMN = "Time"
 GROUP_COLUMN = "building_id"
 
 
-def reservoir_sample(dataset: ds.Dataset, columns: list[str], max_rows: int, seed: int) -> pd.DataFrame:
-    """Uniformly reservoir-sample rows across all parquet fragments without loading the full series."""
+def fragment_sample(dataset: ds.Dataset, columns: list[str], max_rows: int, seed: int, fragments_per_dataset: int, row_groups_per_fragment: int) -> pd.DataFrame:
+    """Read a deterministic sample of parquet row groups without traversing billions of rows."""
+    fragments = list(dataset.get_fragments())
+    if not fragments:
+        return pd.DataFrame(columns=columns)
     rng = np.random.default_rng(seed)
-    sample: list[tuple] = []
-    seen = 0
-    for batch in dataset.to_batches(columns=columns, batch_size=65_536):
-        frame = batch.to_pandas()
-        for row in frame.itertuples(index=False, name=None):
-            seen += 1
-            if len(sample) < max_rows:
-                sample.append(row)
-            else:
-                j = int(rng.integers(0, seen))
-                if j < max_rows:
-                    sample[j] = row
-    return pd.DataFrame(sample, columns=columns)
+    order = rng.permutation(len(fragments))
+    frames: list[pd.DataFrame] = []
+    selected = 0
+
+    for fragment_index in order[:min(fragments_per_dataset, len(order))]:
+        fragment = fragments[int(fragment_index)]
+        path = getattr(fragment, "path", None)
+        if not path:
+            try:
+                frames.append(fragment.to_table(columns=columns).to_pandas())
+            except Exception:
+                continue
+            selected += 1
+            if selected >= fragments_per_dataset:
+                break
+            continue
+
+        try:
+            parquet = pq.ParquetFile(path)
+        except Exception:
+            continue
+        row_group_count = parquet.num_row_groups
+        if row_group_count <= 0:
+            continue
+        group_order = rng.permutation(row_group_count)
+        for group_index in group_order[:min(row_groups_per_fragment, row_group_count)]:
+            try:
+                table = parquet.read_row_group(int(group_index), columns=columns)
+                if table.num_rows:
+                    frames.append(table.to_pandas())
+            except Exception:
+                continue
+        selected += 1
+        if sum(len(frame) for frame in frames) >= max_rows:
+            break
+
+    if not frames:
+        return pd.DataFrame(columns=columns)
+    frame = pd.concat(frames, ignore_index=True)
+    if len(frame) > max_rows:
+        frame = frame.sample(n=max_rows, random_state=seed).reset_index(drop=True)
+    return frame
 
 
 def build_features(frame: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
@@ -127,23 +161,29 @@ def main():
     parser.add_argument("timeseries_dir", type=Path)
     parser.add_argument("--output", type=Path, default=Path("public/models/rescast_timeseries_surrogate.json"))
     parser.add_argument("--sample", type=int, default=MAX_ROWS)
+    parser.add_argument("--fragments", type=int, default=12)
+    parser.add_argument("--row-groups-per-fragment", type=int, default=4)
     args = parser.parse_args()
 
     dataset = ds.dataset(args.timeseries_dir, format="parquet")
     available = set(dataset.schema.names)
     required = [TIME_COLUMN, GROUP_COLUMN, TARGET]
     missing = [name for name in required if name not in available]
-    if missing: raise SystemExit(f"RESCAST time-series dataset is missing required columns: {missing}")
+    if missing:
+        raise SystemExit(f"RESCAST time-series dataset is missing required columns: {missing}")
     columns = [name for name in [TIME_COLUMN, GROUP_COLUMN, TARGET, *BASE_COLUMNS] if name in available]
-    frame = reservoir_sample(dataset, columns, min(args.sample, MAX_ROWS), SEED)
-    if frame.empty: raise SystemExit("No time-series rows were available for training.")
+    frame = fragment_sample(dataset, columns, min(args.sample, MAX_ROWS), SEED, max(1, args.fragments), max(1, args.row_groups_per_fragment))
+    if frame.empty:
+        raise SystemExit("No time-series rows were available for training.")
     y = pd.to_numeric(frame[TARGET], errors="coerce").to_numpy(dtype=float)
     valid = np.isfinite(y); frame = frame.loc[valid].reset_index(drop=True); y = y[valid]
-    if len(frame) < 1_000: raise SystemExit("Too few valid target rows for a useful time-series surrogate.")
+    if len(frame) < 1_000:
+        raise SystemExit("Too few valid target rows for a useful time-series surrogate.")
 
     x, feature_names = build_features(frame)
     train, val, test = split_by_building(frame, SEED)
-    if train.sum() < 500 or val.sum() < 200 or test.sum() < 200: raise SystemExit("Not enough distinct buildings for grouped train/validation/test evaluation.")
+    if train.sum() < 500 or val.sum() < 200 or test.sum() < 200:
+        raise SystemExit("Not enough distinct buildings for grouped train/validation/test evaluation.")
 
     best = None
     for alpha in [0.01, 0.1, 1.0, 10.0, 100.0]:
@@ -158,6 +198,7 @@ def main():
         "schemaVersion": "rescast-timeseries-1.0",
         "trainingDataset": args.timeseries_dir.name,
         "sampleRows": int(len(frame)),
+        "sampling": {"method": "random_parquet_fragments_and_row_groups", "fragments": int(args.fragments), "rowGroupsPerFragment": int(args.row_groups_per_fragment), "seed": SEED},
         "featureNames": feature_names,
         "target": TARGET,
         "targetUnit": "dataset-native; verify against RESCAST metadata before engineering use",
@@ -169,11 +210,11 @@ def main():
         "screeningUseOnly": True, "engineeringAuthority": "deterministic_physics_and_measured_site_data",
         "featureMean": feature_mean.tolist(), "featureScale": feature_scale.tolist(),
         "intercept": float(beta[0]), "coefficients": beta[1:].tolist(),
-        "note": "Learned expected-load screen from weather, setpoints and time. Not a retrofit savings calculator.",
+        "note": "Learned expected-load screen from weather, setpoints and time. Not a retrofit savings calculator. Sampling avoids scanning the full time-series corpus.",
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
-    print(json.dumps({k: artifact[k] for k in ["trainingDataset", "sampleRows", "trainRows", "validationRows", "testRows", "testMetrics", "meanBaselineTestMetrics", "selectedAlpha"]}, indent=2))
+    print(json.dumps({k: artifact[k] for k in ["trainingDataset", "sampleRows", "trainRows", "validationRows", "testRows", "testMetrics", "meanBaselineTestMetrics", "selectedAlpha", "sampling"]}, indent=2))
 
 
 if __name__ == "__main__": main()
