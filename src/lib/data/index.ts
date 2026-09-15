@@ -3,5 +3,6 @@ export * from "./catalog";
 export * from "./engineeringAdapters";
 export * from "./manifest";
 export * from "./normalize";
+export * from "./rescastTimeSeries";
 export * from "./shadowBridge";
 export * from "./types";
