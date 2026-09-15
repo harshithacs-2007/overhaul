@@ -1,5 +1,5 @@
-import { ResultsView } from "@/components/results/ResultsView";
+import FinalReportView from "@/components/overhaul/FinalReportView";
 
 export default function ResultsPage() {
-  return <ResultsView />;
+  return <FinalReportView />;
 }
