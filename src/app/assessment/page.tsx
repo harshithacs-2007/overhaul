@@ -1,5 +1,5 @@
-import DigitalTwinStudio from "@/components/overhaul/DigitalTwinStudio";
+import OverhaulCommandCenter from "@/components/overhaul/OverhaulCommandCenter";
 
 export default function AssessmentPage() {
-  return <DigitalTwinStudio />;
+  return <OverhaulCommandCenter />;
 }
