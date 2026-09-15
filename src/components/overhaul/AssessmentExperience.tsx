@@ -28,6 +28,7 @@ type Extraction = {
 };
 type Values = Record<string, number | string | null>;
 type RoomScan = { scope?: Scope; coveragePercent?: number; completed?: boolean; sectors?: Array<{ id: string; sector: number; result?: unknown }> };
+type ClimateContext = { location?: string; temperature?: number; humidity?: number; min?: number; max?: number; rain?: number } | null;
 
 function readJson<T>(key: string, fallback: T): T {
   try { return JSON.parse(sessionStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; }
@@ -42,6 +43,7 @@ export default function AssessmentExperience() {
   const [extracts, setExtracts] = useState<Extraction[]>([]);
   const [supplemental, setSupplemental] = useState<Values>({});
   const [roomScan, setRoomScan] = useState<RoomScan | null>(null);
+  const [climate, setClimate] = useState<ClimateContext>(null);
 
   useEffect(() => {
     const sync = () => {
@@ -49,14 +51,17 @@ export default function AssessmentExperience() {
       setExtracts(readJson<Extraction[]>("overhaul:evidence-extractions", []));
       setSupplemental(readJson<Values>("overhaul:supplemental-values", {}));
       setRoomScan(readJson<RoomScan | null>("overhaul:room-scan", null));
+      setClimate(readJson<ClimateContext>("overhaul:climate-context", null));
     };
     sync();
     window.addEventListener("overhaul:supplemental-change", sync);
     window.addEventListener("overhaul:evidence-change", sync);
+    window.addEventListener("overhaul:climate-change", sync);
     window.addEventListener("storage", sync);
     return () => {
       window.removeEventListener("overhaul:supplemental-change", sync);
       window.removeEventListener("overhaul:evidence-change", sync);
+      window.removeEventListener("overhaul:climate-change", sync);
       window.removeEventListener("storage", sync);
     };
   }, []);
@@ -84,7 +89,7 @@ export default function AssessmentExperience() {
         const response = await fetch("/api/persistence/snapshot", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assessment, extractions: extracts, supplemental, roomScan }),
+          body: JSON.stringify({ assessment, extractions: extracts, supplemental, roomScan, climate }),
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Persistence failed");
@@ -98,7 +103,7 @@ export default function AssessmentExperience() {
     };
     void persist();
     return () => { cancelled = true; };
-  }, [assessment, extracts, supplemental, roomScan]);
+  }, [assessment, extracts, supplemental, roomScan, climate]);
 
   const scope = assessment?.assessmentSubject || "building";
   const title = assessment?.siteName || assessment?.assetClass || (scope === "equipment" ? "Asset model" : "Site model");
@@ -107,7 +112,7 @@ export default function AssessmentExperience() {
 
   return <>
     <div className="mx-auto max-w-[1600px] px-4 pt-4 sm:px-7 lg:px-10">
-      <section className="relative overflow-hidden border border-gold/25 bg-[#080a09] shadow-[0_26px_110px_rgba(0,0,0,.28)]">
+      <section className="relative overflow-hidden border border-gold/25 bg-[#080a09] shadow-[0_26px_110px_rgba(0,.28)]">
         <div className="absolute inset-y-0 right-0 w-[42%] bg-[radial-gradient(circle_at_center,rgba(228,184,96,.10),transparent_64%)]" />
         <div className="relative grid gap-5 p-5 sm:p-7 lg:grid-cols-[1.15fr_.85fr] lg:p-9">
           <div>
@@ -133,7 +138,7 @@ export default function AssessmentExperience() {
 
     <div className="mx-auto max-w-[1600px] space-y-5 px-4 pb-12 sm:px-7 lg:px-10">
       <RetrofitPathfinder scope={scope} values={values} />
-      <RetrofitStressLab scope={scope} values={values} />
+      <RetrofitStressLab scope={scope} values={values} climate={climate} />
       <LiveTwinStudio scope={scope} title={title} values={values} />
       <UniversalDecisionWorkspaceV2 />
       <AssetTwinViewport scope={scope} title={title} assetClass={assetClass} evidenceIds={evidenceIds} values={values} />
