@@ -1,26 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { IsometricBuilding } from "@/components/IsometricBuilding";
-import { ThermalRibbon } from "@/components/ThermalRibbon";
 import {
   Chip,
-  EfficiencyDot,
   ProgressBar,
   TapCard,
 } from "@/components/ui/TapCard";
-import {
-  MATERIAL_PRESETS,
-  ROOF_OPTIONS,
-  WALL_OPTIONS,
-  WINDOW_OPTIONS,
-} from "@/lib/calculations/materials";
-import {
-  calculateAssemblyU,
-  efficiencyIndicatorFromU,
-} from "@/lib/calculations/thermal";
 import { HVAC_SYSTEM_LABELS, KW_PER_TON } from "@/lib/calculations/hvac";
 import {
   DEMO_NOTES,
@@ -29,1454 +17,540 @@ import {
   type WizardInput,
 } from "./types";
 
-type AssessmentSubject = "building" | "facility" | "equipment";
-type AssessmentGoal =
-  | "energy"
-  | "performance"
-  | "comfort"
-  | "reliability"
-  | "retrofit"
-  | "unknown";
+type Subject = "building" | "facility" | "equipment";
+type Goal = "energy" | "performance" | "comfort" | "reliability" | "retrofit" | "unknown";
+type EvidenceKind = "camera" | "photo" | "document";
 
-const FLOW_STEPS = [
-  "Assessment",
-  "Location",
-  "Envelope",
-  "HVAC",
-  "Issues",
-  "Review",
+const STEPS = ["Target", "Evidence", "Context", "Review"] as const;
+
+const GOALS: Array<{ value: Goal; label: string; detail: string }> = [
+  { value: "energy", label: "Energy", detail: "Reduce consumption and operating cost" },
+  { value: "performance", label: "Performance", detail: "Find underperformance against expected behaviour" },
+  { value: "comfort", label: "Comfort", detail: "Improve thermal or operating conditions" },
+  { value: "reliability", label: "Reliability", detail: "Find degradation and failure risk" },
+  { value: "retrofit", label: "Retrofit", detail: "Compare upgrade paths and sequence" },
+  { value: "unknown", label: "Not sure", detail: "Let the assessment determine the priority" },
+];
+
+const SUBJECTS: Array<{ value: Subject; label: string; detail: string }> = [
+  { value: "building", label: "Building", detail: "Home, apartment, office, hospital, retail, school" },
+  { value: "facility", label: "Facility", detail: "Factory, plant, campus, warehouse, cold storage" },
+  { value: "equipment", label: "Equipment", detail: "Chiller, compressor, pump, boiler, motor, machine" },
+];
+
+const ISSUE_OPTIONS = [
+  ["high_bill", "High energy bill"],
+  ["poor_cooling", "Poor cooling / heating"],
+  ["hotspots", "Hot or uncomfortable zones"],
+  ["noise", "Unusual noise / vibration"],
+  ["aging", "Aging equipment"],
+  ["frequent_faults", "Frequent faults / maintenance"],
+  ["capacity", "Capacity concern"],
+  ["none", "Nothing obvious"],
 ] as const;
 
-const stepVariants = {
-  enter: (dir: number) => ({
-    x: dir > 0 ? 40 : -40,
-    opacity: 0,
-  }),
-  center: {
-    x: 0,
-    opacity: 1,
-  },
-  exit: (dir: number) => ({
-    x: dir > 0 ? -40 : 40,
-    opacity: 0,
-  }),
+const EVIDENCE_LABELS: Record<EvidenceKind, string> = {
+  camera: "Live scan",
+  photo: "Photos",
+  document: "Documents",
 };
 
 function useDebounced<T>(value: T, ms: number): T {
-  const [v, setV] = useState(value);
-
+  const [next, setNext] = useState(value);
   useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
+    const timer = window.setTimeout(() => setNext(value), ms);
+    return () => window.clearTimeout(timer);
   }, [value, ms]);
-
-  return v;
+  return next;
 }
 
 export function Wizard() {
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const [dir, setDir] = useState(1);
+  const [direction, setDirection] = useState(1);
+  const [subject, setSubject] = useState<Subject | null>(null);
+  const [goal, setGoal] = useState<Goal | null>(null);
   const [data, setData] = useState<WizardInput>(emptyWizard);
-  const [subject, setSubject] = useState<AssessmentSubject | null>(null);
-  const [goal, setGoal] = useState<AssessmentGoal | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [locQuery, setLocQuery] = useState("");
-  const [locResults, setLocResults] = useState<
-    Array<{
-      id: number;
-      label: string;
-      latitude: number;
-      longitude: number;
-    }>
-  >([]);
-  const [locLoading, setLocLoading] = useState(false);
+  const [evidenceKinds, setEvidenceKinds] = useState<EvidenceKind[]>([]);
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [issues, setIssues] = useState<string[]>([]);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationResults, setLocationResults] = useState<Array<{ id: number; label: string; latitude: number; longitude: number }>>([]);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const debouncedQuery = useDebounced(locQuery, 350);
+  const debouncedLocation = useDebounced(locationQuery, 300);
 
   useEffect(() => {
     let cancelled = false;
-
-    async function run() {
-      if (debouncedQuery.trim().length < 2) {
-        setLocResults([]);
+    async function findLocation() {
+      if (debouncedLocation.trim().length < 2) {
+        setLocationResults([]);
         return;
       }
-
-      setLocLoading(true);
-
+      setLocationLoading(true);
       try {
-        const res = await fetch(
-          `/api/geocode?q=${encodeURIComponent(debouncedQuery.trim())}`
-        );
-
-        const json = await res.json();
-
-        if (!cancelled) {
-          setLocResults(json.results ?? []);
-        }
+        const response = await fetch(`/api/geocode?q=${encodeURIComponent(debouncedLocation.trim())}`);
+        const json = await response.json();
+        if (!cancelled) setLocationResults(Array.isArray(json.results) ? json.results : []);
       } catch {
-        if (!cancelled) {
-          setLocResults([]);
-        }
+        if (!cancelled) setLocationResults([]);
       } finally {
-        if (!cancelled) {
-          setLocLoading(false);
-        }
+        if (!cancelled) setLocationLoading(false);
       }
     }
-
-    void run();
-
+    void findLocation();
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery]);
+  }, [debouncedLocation]);
 
-  const wallEff = useMemo(() => {
-    const u = calculateAssemblyU([
-      {
-        materialId: data.wallMaterialId,
-        thicknessM:
-          MATERIAL_PRESETS[data.wallMaterialId].defaultThicknessM,
-      },
-    ]).uValue;
+  const patch = useCallback((partial: Partial<WizardInput>) => {
+    setData((current) => ({ ...current, ...partial }));
+  }, []);
 
-    return efficiencyIndicatorFromU(u);
-  }, [data.wallMaterialId]);
-
-  const roofEff = useMemo(() => {
-    const u = calculateAssemblyU([
-      {
-        materialId: data.roofMaterialId,
-        thicknessM:
-          MATERIAL_PRESETS[data.roofMaterialId].defaultThicknessM,
-      },
-    ]).uValue;
-
-    return efficiencyIndicatorFromU(u);
-  }, [data.roofMaterialId]);
-
-  const windowEff = useMemo(() => {
-    const u = calculateAssemblyU([
-      {
-        materialId: data.windowMaterialId,
-        thicknessM:
-          MATERIAL_PRESETS[data.windowMaterialId].defaultThicknessM,
-      },
-    ]).uValue;
-
-    return efficiencyIndicatorFromU(u);
-  }, [data.windowMaterialId]);
-
-  const ribbonPos = useMemo(() => {
-    const avg =
-      (100 - (wallEff + roofEff + windowEff) / 3) / 100;
-
-    return avg;
-  }, [wallEff, roofEff, windowEff]);
-
-  const go = useCallback(
-    (next: number) => {
-      setDir(next > step ? 1 : -1);
-      setStep(next);
-    },
-    [step]
-  );
-
-  const patch = useCallback(
-    (partial: Partial<WizardInput>) => {
-      setData((d) => ({
-        ...d,
-        ...partial,
-      }));
-    },
-    []
-  );
-
-  const onDemo = () => {
-    setData(loadDemo());
-    setLocQuery(DEMO_INPUT_LABEL);
-    setSubject("building");
-    setGoal("energy");
+  const move = useCallback((next: number) => {
+    setDirection(next >= step ? 1 : -1);
+    setStep(next);
     setError(null);
-    go(1);
+  }, [step]);
+
+  const toggleEvidence = (kind: EvidenceKind) => {
+    setEvidenceKinds((current) => current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind]);
   };
 
-  const canNext = (): boolean => {
-    if (step === 0) {
-      return Boolean(subject && goal);
-    }
+  const toggleIssue = (id: string) => {
+    setIssues((current) => {
+      if (id === "none") return current.includes("none") ? [] : ["none"];
+      return current.includes(id) ? current.filter((item) => item !== id) : [...current.filter((item) => item !== "none"), id];
+    });
+  };
 
+  const onFiles = (files: FileList | null) => {
+    if (!files) return;
+    setEvidenceFiles((current) => [...current, ...Array.from(files)].slice(0, 12));
+    if (!evidenceKinds.includes("photo")) setEvidenceKinds((current) => [...current, "photo"]);
+  };
+
+  const loadExample = () => {
+    setData(loadDemo());
+    setSubject("building");
+    setGoal("energy");
+    setLocationQuery("Bengaluru, India");
+    setEvidenceKinds(["photo", "document"]);
+    setIssues(["high_bill"]);
+    setError(null);
+    move(1);
+  };
+
+  const canContinue = () => {
+    if (step === 0) return Boolean(subject && goal);
     if (step === 1) {
-      return Boolean(
-        data.locationLabel &&
-          data.latitude &&
-          data.longitude
-      );
+      if (subject === "equipment") return evidenceFiles.length > 0 || evidenceKinds.length > 0;
+      return Boolean(data.locationLabel && Number.isFinite(data.latitude) && Number.isFinite(data.longitude));
     }
-
     return true;
   };
 
-  const submit = async () => {
-    if (subject !== "building") {
-      setError(
-        "The universal assessment path is selected. Equipment and facility analysis will use the evidence-driven workflow before engineering calculations are run."
-      );
-      return;
-    }
-
+  const analyse = async () => {
     setSubmitting(true);
     setError(null);
-
     try {
-      const payload: WizardInput = {
-        ...data,
-        hvacUnknown:
-          data.hvacSystemType === "dont_know",
-        capacityTons:
-          data.capacityUnit === "tons"
-            ? data.capacityValue
-            : data.capacityValue / KW_PER_TON,
-      };
-
-      const res = await fetch("/api/calculate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(
-          json.error || "Calculation failed"
-        );
+      if (subject !== "building") {
+        setError("The evidence model is ready for this subject. The equipment/facility engineering backend is the next build step, so no unsupported result is fabricated here.");
+        return;
       }
 
-      sessionStorage.setItem(
-        "overhaul:result",
-        JSON.stringify({
-          ...json,
-          assessmentSubject: subject,
-          assessmentGoal: goal,
-        })
-      );
+      const payload: WizardInput = {
+        ...data,
+        reportedIssues: issues as WizardInput["reportedIssues"],
+        hvacUnknown: data.hvacSystemType === "dont_know",
+        capacityTons: data.capacityUnit === "tons" ? data.capacityValue : data.capacityValue / KW_PER_TON,
+      };
 
+      const response = await fetch("/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Calculation failed");
+
+      sessionStorage.setItem("overhaul:result", JSON.stringify({
+        ...json,
+        assessmentSubject: subject,
+        assessmentGoal: goal,
+        evidenceCount: evidenceFiles.length,
+        evidenceKinds,
+      }));
       router.push("/results");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : String(err)
-      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const assessmentMode =
-    subject === "equipment"
-      ? "Equipment assessment"
-      : subject === "facility"
-        ? "Facility assessment"
-        : "Building assessment";
+  const subjectLabel = subject ? SUBJECTS.find((item) => item.value === subject)?.label : "Assessment";
+  const goalLabel = goal ? GOALS.find((item) => item.value === goal)?.label : null;
 
   return (
-    <div className="relative mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-16 pt-8 sm:px-6">
-      <ProgressBar
-        step={step}
-        total={FLOW_STEPS.length}
-      />
+    <main className="relative mx-auto flex min-h-screen w-full max-w-4xl flex-col px-4 pb-16 pt-8 sm:px-6">
+      <ProgressBar step={step} total={STEPS.length} />
 
       <header className="mt-8 flex items-start justify-between gap-6">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.2em] text-steel">
-            Evidence-first engineering intelligence
+          <p className="text-[11px] uppercase tracking-[0.2em] text-steel">Evidence-first engineering intelligence</p>
+          <h1 className="font-display mt-2 text-4xl tracking-tight text-paper sm:text-5xl">Overhaul</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
+            Show OVERHAUL what you are working with. It builds the engineering model from evidence first, then asks only for information that can change the decision.
           </p>
-
-          <h1 className="font-display mt-2 text-4xl tracking-tight text-paper sm:text-5xl">
-            Overhaul
-          </h1>
-
-          <p className="mt-3 max-w-lg text-sm leading-relaxed text-steel">
-            Assess buildings, facilities, or equipment with
-            the least manual input needed to build a
-            defensible engineering model.
-          </p>
-
           {subject ? (
             <div className="mt-4 flex flex-wrap gap-2">
-              <Chip selected>
-                {assessmentMode}
-              </Chip>
-
-              {goal ? (
-                <Chip selected>
-                  {formatGoal(goal)}
-                </Chip>
-              ) : null}
+              <Chip selected>{subjectLabel}</Chip>
+              {goalLabel ? <Chip selected>{goalLabel}</Chip> : null}
+              {evidenceFiles.length > 0 ? <Chip selected>{evidenceFiles.length} evidence file{evidenceFiles.length === 1 ? "" : "s"}</Chip> : null}
             </div>
           ) : null}
         </div>
-
         <IsometricBuilding className="hidden h-28 w-36 text-steel/70 sm:block" />
       </header>
 
-      <motion.div
-        className="mt-8"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{
-          delay: 0.2,
-          duration: 0.4,
-        }}
-      >
-        <ThermalRibbon
-          position={ribbonPos}
-          label={`${FLOW_STEPS[step]} · ${step + 1}/${FLOW_STEPS.length}`}
-        />
-      </motion.div>
-
-      {step === 0 ? (
-        <div className="mt-6">
-          <button
-            type="button"
-            onClick={onDemo}
-            className="border border-gold/60 px-4 py-2 text-xs uppercase tracking-[0.16em] text-gold hover:bg-gold/10"
-          >
-            Load Demo Example
-          </button>
-
-          <p className="mt-2 text-xs text-steel/80">
-            {DEMO_NOTES}
-          </p>
-        </div>
-      ) : null}
+      <div className="mt-8 flex gap-2 overflow-x-auto pb-1">
+        {STEPS.map((label, index) => (
+          <div key={label} className={`shrink-0 border px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] ${index === step ? "border-teal text-teal" : index < step ? "border-steel/30 text-steel" : "border-steel/15 text-steel/45"}`}>
+            {String(index + 1).padStart(2, "0")} · {label}
+          </div>
+        ))}
+      </div>
 
       <div className="mt-8 flex-1 overflow-hidden">
-        <AnimatePresence
-          mode="wait"
-          custom={dir}
-        >
+        <AnimatePresence mode="wait" custom={direction}>
           <motion.div
             key={step}
-            custom={dir}
-            variants={stepVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{
-              duration: 0.35,
-              ease: "easeOut",
-            }}
+            custom={direction}
+            initial={{ x: direction > 0 ? 40 : -40, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: direction > 0 ? -40 : 40, opacity: 0 }}
+            transition={{ duration: 0.28, ease: "easeOut" }}
           >
             {step === 0 ? (
-              <StepAssessment
-                subject={subject}
-                goal={goal}
-                onSubject={(value) => {
-                  setSubject(value);
-                  setGoal(null);
-                  setError(null);
-                }}
-                onGoal={(value) => {
-                  setGoal(value);
-                  setError(null);
-                }}
-              />
+              <TargetStep subject={subject} goal={goal} onSubject={(value) => { setSubject(value); setGoal(null); }} onGoal={setGoal} onDemo={loadExample} />
             ) : null}
-
             {step === 1 ? (
-              <StepLocation
+              <EvidenceStep
+                subject={subject}
                 data={data}
                 patch={patch}
-                locQuery={locQuery}
-                setLocQuery={setLocQuery}
-                locResults={locResults}
-                locLoading={locLoading}
-                showAdvanced={showAdvanced}
-                setShowAdvanced={setShowAdvanced}
-                subject={subject}
+                locationQuery={locationQuery}
+                setLocationQuery={setLocationQuery}
+                locationResults={locationResults}
+                locationLoading={locationLoading}
+                evidenceKinds={evidenceKinds}
+                toggleEvidence={toggleEvidence}
+                onFiles={onFiles}
+                fileCount={evidenceFiles.length}
               />
             ) : null}
-
             {step === 2 ? (
-              <StepEnvelope
-                data={data}
-                patch={patch}
-                wallEff={wallEff}
-                roofEff={roofEff}
-                windowEff={windowEff}
-              />
+              <ContextStep subject={subject} data={data} patch={patch} issues={issues} toggleIssue={toggleIssue} />
             ) : null}
-
             {step === 3 ? (
-              <StepHvac
-                data={data}
-                patch={patch}
-                subject={subject}
-              />
-            ) : null}
-
-            {step === 4 ? (
-              <StepIssues
-                data={data}
-                patch={patch}
-                subject={subject}
-              />
-            ) : null}
-
-            {step === 5 ? (
-              <StepReview
-                data={data}
-                subject={subject}
-                goal={goal}
-                onJump={(next) => go(next)}
-              />
+              <ReviewStep subject={subject} goal={goal} data={data} evidenceKinds={evidenceKinds} fileCount={evidenceFiles.length} issues={issues} />
             ) : null}
           </motion.div>
         </AnimatePresence>
       </div>
 
-      {error ? (
-        <p className="mt-4 border border-clay/40 px-3 py-2 text-sm leading-relaxed text-clay">
-          {error}
-        </p>
-      ) : null}
+      {step === 0 ? <p className="mt-4 text-xs text-steel/75">{DEMO_NOTES}</p> : null}
+      {error ? <div className="mt-5 border border-clay/40 px-4 py-3 text-sm leading-relaxed text-clay">{error}</div> : null}
 
-      <div className="mt-10 flex items-center justify-between border-t border-steel/20 pt-6">
-        <button
-          type="button"
-          disabled={step === 0}
-          onClick={() => go(step - 1)}
-          className="text-sm text-steel disabled:opacity-30"
-        >
-          Back
-        </button>
-
-        {step < FLOW_STEPS.length - 1 ? (
-          <button
-            type="button"
-            disabled={!canNext()}
-            onClick={() => go(step + 1)}
-            className="border border-teal bg-teal/10 px-5 py-2.5 text-sm text-teal disabled:opacity-40"
-          >
-            Continue
-          </button>
-        ) : subject === "building" ? (
-          <button
-            type="button"
-            disabled={submitting || !canNext()}
-            onClick={() => void submit()}
-            className="border border-gold bg-gold/10 px-5 py-2.5 text-sm text-gold disabled:opacity-40"
-          >
-            {submitting
-              ? "Calculating…"
-              : "Calculate My Retrofit Plan"}
-          </button>
+      <footer className="mt-10 flex items-center justify-between border-t border-steel/20 pt-6">
+        <button type="button" disabled={step === 0 || submitting} onClick={() => move(step - 1)} className="text-sm text-steel disabled:opacity-25">Back</button>
+        {step < STEPS.length - 1 ? (
+          <button type="button" disabled={!canContinue()} onClick={() => move(step + 1)} className="border border-teal bg-teal/10 px-5 py-2.5 text-sm text-teal disabled:opacity-35">Continue</button>
         ) : (
-          <button
-            type="button"
-            onClick={() =>
-              setError(
-                "Evidence-driven facility and equipment analysis is the next assessment layer. No unsupported engineering calculation has been run."
-              )
-            }
-            className="border border-teal bg-teal/10 px-5 py-2.5 text-sm text-teal"
-          >
-            Continue to Evidence Analysis
+          <button type="button" disabled={submitting} onClick={() => void analyse()} className="border border-gold bg-gold/10 px-5 py-2.5 text-sm text-gold disabled:opacity-35">
+            {submitting ? "Building model…" : "Build Engineering Assessment"}
           </button>
         )}
-      </div>
-    </div>
+      </footer>
+    </main>
   );
 }
 
-function StepAssessment({
+function TargetStep({
   subject,
   goal,
   onSubject,
   onGoal,
+  onDemo,
 }: {
-  subject: AssessmentSubject | null;
-  goal: AssessmentGoal | null;
-  onSubject: (value: AssessmentSubject) => void;
-  onGoal: (value: AssessmentGoal) => void;
+  subject: Subject | null;
+  goal: Goal | null;
+  onSubject: (value: Subject) => void;
+  onGoal: (value: Goal) => void;
+  onDemo: () => void;
 }) {
-  const subjects: Array<{
-    value: AssessmentSubject;
-    label: string;
-    subtitle: string;
-  }> = [
-    {
-      value: "building",
-      label: "Building",
-      subtitle:
-        "Home, apartment, office, hospital, retail, or other structure",
-    },
-    {
-      value: "facility",
-      label: "Facility",
-      subtitle:
-        "Factory, plant, campus, warehouse, or multi-system site",
-    },
-    {
-      value: "equipment",
-      label: "Equipment",
-      subtitle:
-        "Chiller, compressor, pump, boiler, motor, or machinery",
-    },
-  ];
-
-  const goals: Array<{
-    value: AssessmentGoal;
-    label: string;
-  }> = [
-    {
-      value: "energy",
-      label: "Energy",
-    },
-    {
-      value: "performance",
-      label: "Performance",
-    },
-    {
-      value: "comfort",
-      label: "Comfort",
-    },
-    {
-      value: "reliability",
-      label: "Reliability",
-    },
-    {
-      value: "retrofit",
-      label: "Retrofit planning",
-    },
-    {
-      value: "unknown",
-      label: "Not sure",
-    },
-  ];
-
   return (
     <section className="space-y-10">
       <div>
-        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">
-          Step 01
-        </p>
-
-        <h2 className="font-display mt-1 text-2xl text-paper">
-          What are you assessing?
-        </h2>
-
-        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-steel">
-          Start broad. Overhaul chooses the appropriate engineering
-          pathway after this.
-        </p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Step 01</p>
+        <h2 className="font-display mt-1 text-2xl text-paper">What are you assessing?</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">Choose the actual subject. A machine can be assessed independently; a facility can contain buildings and equipment together.</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
-        {subjects.map((item) => (
-          <TapCard
-            key={item.value}
-            selected={subject === item.value}
-            onClick={() => onSubject(item.value)}
-            title={item.label}
-            subtitle={item.subtitle}
-          />
+        {SUBJECTS.map((item) => (
+          <TapCard key={item.value} selected={subject === item.value} onClick={() => onSubject(item.value)} title={item.label} subtitle={item.detail}>
+            <div className="mt-5 flex items-center justify-between text-[10px] uppercase tracking-[0.14em] text-steel/70">
+              <span>{item.value === "equipment" ? "Asset-level" : item.value === "facility" ? "Site-level" : "Structure-level"}</span>
+              <span>{subject === item.value ? "Selected" : "Select"}</span>
+            </div>
+          </TapCard>
         ))}
       </div>
 
-      {subject ? (
-        <motion.div
-          initial={{
-            opacity: 0,
-            y: 8,
-          }}
-          animate={{
-            opacity: 1,
-            y: 0,
-          }}
-          transition={{
-            duration: 0.25,
-          }}
-        >
-          <p className="text-[10px] uppercase tracking-[0.18em] text-steel">
-            Step 01B
-          </p>
-
-          <h3 className="font-display mt-1 text-2xl text-paper">
-            What are you trying to improve?
-          </h3>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {goals.map((item) => (
-              <Chip
-                key={item.value}
-                selected={goal === item.value}
-                onClick={() => onGoal(item.value)}
-              >
-                {item.label}
-              </Chip>
-            ))}
+      <div>
+        <div className="mb-3 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Decision target</p>
+            <h3 className="mt-1 text-lg text-paper">What do you need to know?</h3>
           </div>
-        </motion.div>
-      ) : null}
+          <button type="button" onClick={onDemo} className="border border-gold/60 px-3 py-1.5 text-[10px] uppercase tracking-[0.15em] text-gold hover:bg-gold/10">Load Demo</button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {GOALS.map((item) => (
+            <TapCard key={item.value} selected={goal === item.value} onClick={() => onGoal(item.value)} title={item.label} subtitle={item.detail} />
+          ))}
+        </div>
+      </div>
     </section>
   );
 }
 
-function StepLocation({
+function EvidenceStep({
+  subject,
   data,
   patch,
-  locQuery,
-  setLocQuery,
-  locResults,
-  locLoading,
-  showAdvanced,
-  setShowAdvanced,
-  subject,
+  locationQuery,
+  setLocationQuery,
+  locationResults,
+  locationLoading,
+  evidenceKinds,
+  toggleEvidence,
+  onFiles,
+  fileCount,
 }: {
+  subject: Subject | null;
   data: WizardInput;
-  patch: (p: Partial<WizardInput>) => void;
-  locQuery: string;
-  setLocQuery: (v: string) => void;
-  locResults: Array<{
-    id: number;
-    label: string;
-    latitude: number;
-    longitude: number;
-  }>;
-  locLoading: boolean;
-  showAdvanced: boolean;
-  setShowAdvanced: (v: boolean) => void;
-  subject: AssessmentSubject | null;
+  patch: (partial: Partial<WizardInput>) => void;
+  locationQuery: string;
+  setLocationQuery: (value: string) => void;
+  locationResults: Array<{ id: number; label: string; latitude: number; longitude: number }>;
+  locationLoading: boolean;
+  evidenceKinds: EvidenceKind[];
+  toggleEvidence: (kind: EvidenceKind) => void;
+  onFiles: (files: FileList | null) => void;
+  fileCount: number;
 }) {
   return (
     <section className="space-y-8">
       <div>
-        <h2 className="font-display text-2xl text-paper">
-          Location & context
-        </h2>
-
-        <p className="mt-1 text-sm text-steel">
-          Location establishes climate context. Exact technical
-          conditions can be added from evidence later.
-        </p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Step 02</p>
+        <h2 className="font-display mt-1 text-2xl text-paper">Give it evidence, not homework.</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">Start with a scan, a few photos, or documents. OVERHAUL should extract names, dimensions, materials, labels, condition cues and context before asking technical questions.</p>
       </div>
 
-      <label className="block">
-        <span className="text-[11px] uppercase tracking-[0.14em] text-steel">
-          Location
-        </span>
+      <div className="grid gap-3 md:grid-cols-3">
+        {(["camera", "photo", "document"] as EvidenceKind[]).map((kind) => (
+          <TapCard key={kind} selected={evidenceKinds.includes(kind)} onClick={() => toggleEvidence(kind)} title={EVIDENCE_LABELS[kind]} subtitle={kind === "camera" ? "Use the camera for fast spatial context" : kind === "photo" ? "Upload equipment, rooms, panels, roofs, nameplates" : "Bills, manuals, drawings, maintenance records"}>
+            <div className="mt-5 text-[10px] uppercase tracking-[0.14em] text-steel">{evidenceKinds.includes(kind) ? "Queued" : "Available"}</div>
+          </TapCard>
+        ))}
+      </div>
 
-        <input
-          value={locQuery || data.locationLabel}
-          onChange={(e) => {
-            setLocQuery(e.target.value);
-
-            if (data.locationLabel) {
-              patch({
-                locationLabel: "",
-                latitude: 0,
-                longitude: 0,
-              });
-            }
-          }}
-          placeholder="Start typing a city, region, or address…"
-          className="mt-2 w-full border border-steel/30 bg-transparent px-3 py-2.5 text-sm text-paper outline-none focus:border-teal"
-        />
-
-        {locLoading ? (
-          <p className="mt-1 text-xs text-steel">
-            Searching…
-          </p>
-        ) : null}
-
-        {locResults.length > 0 &&
-        !data.locationLabel ? (
-          <ul className="mt-2 border border-steel/20">
-            {locResults.map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  className="w-full border-b border-steel/15 px-3 py-2 text-left text-sm hover:bg-paper/5"
-                  onClick={() => {
-                    patch({
-                      locationLabel: r.label,
-                      latitude: r.latitude,
-                      longitude: r.longitude,
-                    });
-
-                    setLocQuery(r.label);
-                  }}
-                >
-                  {r.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        {data.locationLabel ? (
-          <p className="mt-2 font-mono-num text-xs text-teal">
-            {data.locationLabel} ·{" "}
-            {data.latitude.toFixed(2)},
-            {" "}
-            {data.longitude.toFixed(2)}
-          </p>
-        ) : null}
+      <label className="block cursor-pointer border border-dashed border-steel/35 p-6 transition-colors hover:border-steel/60">
+        <input className="sr-only" type="file" accept="image/*,.pdf,.txt,.csv" multiple onChange={(event) => { onFiles(event.target.files); event.currentTarget.value = ""; }} />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm text-paper">Drop evidence here or choose files</p>
+            <p className="mt-1 text-xs text-steel">You can start with one image. Add more only when needed.</p>
+          </div>
+          <span className="text-[10px] uppercase tracking-[0.15em] text-teal">{fileCount} selected</span>
+        </div>
       </label>
 
-      {subject === "equipment" ? (
-        <div className="border border-teal/20 bg-teal/[0.02] p-4">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-teal">
-            Equipment assessment
-          </p>
-
-          <p className="mt-2 text-sm leading-relaxed text-steel">
-            Exact equipment behaviour will be established from
-            evidence such as nameplates, technical documents,
-            operating data, and observed conditions rather than
-            inferred from age alone.
-          </p>
+      {subject !== "equipment" ? (
+        <div>
+          <label className="text-[10px] uppercase tracking-[0.16em] text-steel">Site / location</label>
+          <input value={locationQuery} onChange={(event) => setLocationQuery(event.target.value)} placeholder="City, address, or facility location" className="mt-2 w-full border border-steel/30 bg-transparent px-4 py-3 text-sm text-paper outline-none placeholder:text-steel/50 focus:border-teal" />
+          {locationLoading ? <p className="mt-2 text-xs text-steel">Resolving climate context…</p> : null}
+          {locationResults.length > 0 ? (
+            <div className="mt-2 overflow-hidden border border-steel/25">
+              {locationResults.slice(0, 5).map((item) => (
+                <button key={item.id} type="button" onClick={() => { patch({ locationLabel: item.label, latitude: item.latitude, longitude: item.longitude }); setLocationQuery(item.label); }} className="block w-full border-b border-steel/15 px-4 py-3 text-left text-xs text-steel last:border-b-0 hover:bg-teal/5 hover:text-paper">{item.label}</button>
+              ))}
+            </div>
+          ) : null}
+          {data.locationLabel ? <p className="mt-2 text-[11px] text-teal">Climate context locked to {data.locationLabel}</p> : null}
         </div>
       ) : (
-        <>
-          <div>
-            <div className="flex justify-between text-[11px] uppercase tracking-[0.14em] text-steel">
-              <span>
-                {subject === "facility"
-                  ? "Approximate conditioned area"
-                  : "Building area"}
-              </span>
-
-              <span className="font-mono-num text-paper">
-                {data.floorAreaM2} m²
-              </span>
-            </div>
-
-            <input
-              type="range"
-              min={40}
-              max={2000}
-              step={10}
-              value={data.floorAreaM2}
-              onChange={(e) =>
-                patch({
-                  floorAreaM2: Number(
-                    e.target.value
-                  ),
-                })
-              }
-              className="mt-3 w-full accent-teal"
-            />
-          </div>
-
-          <div>
-            <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-steel">
-              Usage context
-            </p>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              {(
-                [
-                  [
-                    "home",
-                    "Home / residential",
-                    "Residential occupancy",
-                  ],
-                  [
-                    "office",
-                    "Commercial",
-                    "Office / service profile",
-                  ],
-                  [
-                    "mixed",
-                    "Mixed / other",
-                    "Mixed or extended operation",
-                  ],
-                ] as const
-              ).map(([id, label, subtitle]) => (
-                <TapCard
-                  key={id}
-                  selected={
-                    data.buildingType === id
-                  }
-                  onClick={() =>
-                    patch({
-                      buildingType: id,
-                    })
-                  }
-                  title={label}
-                  subtitle={subtitle}
-                />
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      <div>
-        <button
-          type="button"
-          className="text-xs text-steel underline-offset-2 hover:underline"
-          onClick={() =>
-            setShowAdvanced(!showAdvanced)
-          }
-        >
-          {showAdvanced ? "Hide" : "Show"} advanced
-        </button>
-
-        {showAdvanced ? (
-          <label className="mt-3 block">
-            <span className="text-[11px] text-steel">
-              Energy cost input — kept for current calculation
-              compatibility
-            </span>
-
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={data.energyRateINR}
-              onChange={(e) =>
-                patch({
-                  energyRateINR:
-                    Number(e.target.value) || 0,
-                })
-              }
-              className="mt-2 w-40 border border-steel/30 bg-transparent px-3 py-2 font-mono-num text-sm outline-none focus:border-teal"
-            />
-          </label>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function StepEnvelope({
-  data,
-  patch,
-  wallEff,
-  roofEff,
-  windowEff,
-}: {
-  data: WizardInput;
-  patch: (p: Partial<WizardInput>) => void;
-  wallEff: number;
-  roofEff: number;
-  windowEff: number;
-}) {
-  return (
-    <section className="space-y-8">
-      <div>
-        <h2 className="font-display text-2xl text-paper">
-          Envelope
-        </h2>
-
-        <p className="mt-1 text-sm text-steel">
-          Choose known materials where available. Unknown details
-          will be handled through evidence rather than invented.
-        </p>
-      </div>
-
-      <MaterialGroup
-        label="Walls"
-        options={WALL_OPTIONS}
-        selected={data.wallMaterialId}
-        onSelect={(id) =>
-          patch({
-            wallMaterialId:
-              id as WizardInput["wallMaterialId"],
-          })
-        }
-        eff={wallEff}
-      />
-
-      <MaterialGroup
-        label="Roof"
-        options={ROOF_OPTIONS}
-        selected={data.roofMaterialId}
-        onSelect={(id) =>
-          patch({
-            roofMaterialId:
-              id as WizardInput["roofMaterialId"],
-          })
-        }
-        eff={roofEff}
-      />
-
-      <MaterialGroup
-        label="Windows"
-        options={WINDOW_OPTIONS}
-        selected={data.windowMaterialId}
-        onSelect={(id) =>
-          patch({
-            windowMaterialId:
-              id as WizardInput["windowMaterialId"],
-          })
-        }
-        eff={windowEff}
-      />
-    </section>
-  );
-}
-
-function MaterialGroup({
-  label,
-  options,
-  selected,
-  onSelect,
-  eff,
-}: {
-  label: string;
-  options: readonly string[];
-  selected: string;
-  onSelect: (id: string) => void;
-  eff: number;
-}) {
-  return (
-    <div>
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-[11px] uppercase tracking-[0.14em] text-steel">
-          {label}
-        </p>
-
-        <EfficiencyDot value={eff} />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        {options.map((id) => {
-          const m =
-            MATERIAL_PRESETS[
-              id as keyof typeof MATERIAL_PRESETS
-            ];
-
-          return (
-            <TapCard
-              key={id}
-              selected={selected === id}
-              onClick={() => onSelect(id)}
-              title={m.label}
-              subtitle={`λ ${m.lambda} W/m·K · ${
-                m.defaultThicknessM * 1000
-              } mm`}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function StepHvac({
-  data,
-  patch,
-  subject,
-}: {
-  data: WizardInput;
-  patch: (p: Partial<WizardInput>) => void;
-  subject: AssessmentSubject | null;
-}) {
-  const displayCapacity = data.capacityValue;
-
-  return (
-    <section className="space-y-8">
-      <div>
-        <h2 className="font-display text-2xl text-paper">
-          {subject === "equipment"
-            ? "System context"
-            : "HVAC"}
-        </h2>
-
-        <p className="mt-1 text-sm text-steel">
-          Provide only what you know. Equipment-specific behaviour
-          will ultimately come from evidence and validated models.
-        </p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        {(
-          Object.keys(HVAC_SYSTEM_LABELS) as Array<
-            keyof typeof HVAC_SYSTEM_LABELS
-          >
-        ).map((id) => (
-          <TapCard
-            key={id}
-            selected={data.hvacSystemType === id}
-            onClick={() =>
-              patch({
-                hvacSystemType: id,
-                hvacUnknown:
-                  id === "dont_know",
-              })
-            }
-            title={HVAC_SYSTEM_LABELS[id]}
-          />
-        ))}
-      </div>
-
-      {data.hvacSystemType !== "dont_know" ? (
-        <>
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-steel">
-                Capacity
-              </p>
-
-              <div className="flex gap-2">
-                <Chip
-                  selected={
-                    data.capacityUnit === "tons"
-                  }
-                  onClick={() => {
-                    if (
-                      data.capacityUnit === "kW"
-                    ) {
-                      patch({
-                        capacityUnit: "tons",
-                        capacityValue:
-                          data.capacityValue /
-                          KW_PER_TON,
-                      });
-                    }
-                  }}
-                >
-                  tons
-                </Chip>
-
-                <Chip
-                  selected={
-                    data.capacityUnit === "kW"
-                  }
-                  onClick={() => {
-                    if (
-                      data.capacityUnit ===
-                      "tons"
-                    ) {
-                      patch({
-                        capacityUnit: "kW",
-                        capacityValue:
-                          data.capacityValue *
-                          KW_PER_TON,
-                      });
-                    }
-                  }}
-                >
-                  kW
-                </Chip>
-              </div>
-            </div>
-
-            <div className="flex justify-between text-sm">
-              <span className="text-steel">
-                Rated capacity
-              </span>
-
-              <span className="font-mono-num text-paper">
-                {displayCapacity.toFixed(1)}{" "}
-                {data.capacityUnit}
-              </span>
-            </div>
-
-            <input
-              type="range"
-              min={
-                data.capacityUnit === "tons"
-                  ? 0.5
-                  : 1.5
-              }
-              max={
-                data.capacityUnit === "tons"
-                  ? 30
-                  : 100
-              }
-              step={0.5}
-              value={data.capacityValue}
-              onChange={(e) =>
-                patch({
-                  capacityValue:
-                    Number(e.target.value),
-                })
-              }
-              className="mt-3 w-full accent-teal"
-            />
-          </div>
-
-          <div>
-            <p className="mb-3 text-[11px] uppercase tracking-[0.14em] text-steel">
-              Equipment age
-            </p>
-
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  "<5",
-                  "5-10",
-                  "10-15",
-                  "15+",
-                ] as const
-              ).map((r) => (
-                <Chip
-                  key={r}
-                  selected={
-                    data.ageRange === r
-                  }
-                  onClick={() =>
-                    patch({
-                      ageRange: r,
-                    })
-                  }
-                >
-                  {r === "<5"
-                    ? "< 5 years"
-                    : r === "15+"
-                      ? "15+ years"
-                      : `${r} years`}
-                </Chip>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-steel">
-                Zoning
-              </p>
-
-              <div className="flex gap-2">
-                <Chip
-                  selected={
-                    data.zoning ===
-                    "single"
-                  }
-                  onClick={() =>
-                    patch({
-                      zoning: "single",
-                    })
-                  }
-                >
-                  Single zone
-                </Chip>
-
-                <Chip
-                  selected={
-                    data.zoning === "multi"
-                  }
-                  onClick={() =>
-                    patch({
-                      zoning: "multi",
-                    })
-                  }
-                >
-                  Multi zone
-                </Chip>
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-2 text-[11px] uppercase tracking-[0.14em] text-steel">
-                Ventilation
-              </p>
-
-              <div className="flex gap-2">
-                <Chip
-                  selected={
-                    data.ventilation ===
-                    "natural"
-                  }
-                  onClick={() =>
-                    patch({
-                      ventilation: "natural",
-                    })
-                  }
-                >
-                  Natural
-                </Chip>
-
-                <Chip
-                  selected={
-                    data.ventilation ===
-                    "mechanical"
-                  }
-                  onClick={() =>
-                    patch({
-                      ventilation:
-                        "mechanical",
-                    })
-                  }
-                >
-                  Mechanical
-                </Chip>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="border border-teal/20 bg-teal/[0.02] p-4">
-          <p className="text-sm leading-relaxed text-steel">
-            System details are unknown. Overhaul should use
-            evidence such as a nameplate, technical document, or
-            operating data before making equipment-specific
-            engineering claims.
-          </p>
+        <div className="border border-steel/20 bg-steel/5 p-4">
+          <p className="text-sm text-paper">Equipment can be assessed without a site address.</p>
+          <p className="mt-1 text-xs leading-relaxed text-steel">Location becomes useful later when outdoor conditions, connected systems, operating profile, or service environment can affect the diagnosis.</p>
         </div>
       )}
     </section>
   );
 }
 
-function StepIssues({
+function ContextStep({
+  subject,
   data,
   patch,
-  subject,
+  issues,
+  toggleIssue,
 }: {
+  subject: Subject | null;
   data: WizardInput;
-  patch: (p: Partial<WizardInput>) => void;
-  subject: AssessmentSubject | null;
+  patch: (partial: Partial<WizardInput>) => void;
+  issues: string[];
+  toggleIssue: (id: string) => void;
 }) {
-  const toggle = (
-    issue: WizardInput["reportedIssues"][number]
-  ) => {
-    const set = new Set(data.reportedIssues);
-
-    if (set.has(issue)) {
-      set.delete(issue);
-    } else {
-      set.add(issue);
-    }
-
-    patch({
-      reportedIssues: [...set],
-    });
-  };
-
-  const issues =
-    subject === "equipment"
-      ? ([
-          ["uneven_temp", "Temperature instability"],
-          ["high_bills", "High energy use"],
-          ["frequent_cycling", "Frequent starts / cycling"],
-          ["poor_airflow", "Poor flow / output"],
-        ] as const)
-      : ([
-          ["uneven_temp", "Uneven temperature"],
-          ["high_bills", "High energy bills"],
-          ["frequent_cycling", "Frequent cycling"],
-          ["poor_airflow", "Poor airflow"],
-        ] as const);
+  const isEquipment = subject === "equipment";
+  const isFacility = subject === "facility";
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-8">
       <div>
-        <h2 className="font-display text-2xl text-paper">
-          Reported symptoms
-        </h2>
-
-        <p className="mt-1 text-sm text-steel">
-          Optional. This describes what the user/operator sees;
-          it does not replace engineering evidence.
-        </p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Step 03</p>
+        <h2 className="font-display mt-1 text-2xl text-paper">Only the context that changes the answer.</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">Everything else stays inferred, measured, or explicitly unknown. You do not need to know engineering terminology.</p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {issues.map(([id, label]) => (
-          <Chip
-            key={id}
-            selected={data.reportedIssues.includes(
-              id
-            )}
-            onClick={() => toggle(id)}
-          >
-            {label}
-          </Chip>
-        ))}
+      {isEquipment ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Equipment family">
+            <select value={data.hvacSystemType} onChange={(event) => patch({ hvacSystemType: event.target.value as WizardInput["hvacSystemType"] })} className="field-input">
+              {Object.entries(HVAC_SYSTEM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="Rated capacity, when known">
+            <div className="flex gap-2">
+              <input type="number" min={0} step="0.1" value={data.capacityValue} onChange={(event) => patch({ capacityValue: Number(event.target.value) || 0 })} className="field-input" />
+              <select value={data.capacityUnit} onChange={(event) => patch({ capacityUnit: event.target.value as WizardInput["capacityUnit"] })} className="w-24 border border-steel/30 bg-transparent px-3 py-2 text-sm text-paper outline-none focus:border-teal">
+                <option value="tons">tons</option>
+                <option value="kW">kW</option>
+              </select>
+            </div>
+          </Field>
+          <Field label="Typical operation">
+            <select value={data.zoning} onChange={(event) => patch({ zoning: event.target.value as WizardInput["zoning"] })} className="field-input">
+              <option value="single">Single operating zone</option>
+              <option value="multiple">Multiple zones</option>
+            </select>
+          </Field>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label={isFacility ? "Approximate conditioned area" : "Approximate floor area"}>
+            <div className="flex gap-2">
+              <input type="number" min={1} value={data.floorAreaM2} onChange={(event) => patch({ floorAreaM2: Number(event.target.value) || 1 })} className="field-input" />
+              <span className="flex items-center border border-steel/15 px-3 text-xs text-steel">m²</span>
+            </div>
+          </Field>
+          <Field label="Building / site type">
+            <select value={data.buildingType} onChange={(event) => patch({ buildingType: event.target.value as WizardInput["buildingType"] })} className="field-input">
+              <option value="home">Home / residential</option>
+              <option value="office">Office / commercial</option>
+              <option value="mixed">Mixed / other</option>
+            </select>
+          </Field>
+          <Field label="Air movement">
+            <select value={data.ventilation} onChange={(event) => patch({ ventilation: event.target.value as WizardInput["ventilation"] })} className="field-input">
+              <option value="natural">Mostly natural</option>
+              <option value="mechanical">Mechanical ventilation</option>
+            </select>
+          </Field>
+        </div>
+      )}
+
+      <div>
+        <div className="mb-3">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-steel">Observed symptoms</p>
+          <p className="mt-1 text-xs text-steel">Select anything the user actually experiences. The engine uses these as evidence weights, not as diagnosis.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {ISSUE_OPTIONS.map(([id, label]) => <Chip key={id} selected={issues.includes(id)} onClick={() => toggleIssue(id)}>{label}</Chip>)}
+        </div>
+      </div>
+
+      <div className="border border-steel/20 p-4">
+        <p className="text-xs text-steel">Unknown is valid. OVERHAUL should not invent a machine age, efficiency, refrigerant, or fault just because the user did not provide it.</p>
       </div>
     </section>
   );
 }
 
-function StepReview({
-  data,
+function ReviewStep({
   subject,
   goal,
-  onJump,
+  data,
+  evidenceKinds,
+  fileCount,
+  issues,
 }: {
+  subject: Subject | null;
+  goal: Goal | null;
   data: WizardInput;
-  subject: AssessmentSubject | null;
-  goal: AssessmentGoal | null;
-  onJump: (step: number) => void;
+  evidenceKinds: EvidenceKind[];
+  fileCount: number;
+  issues: string[];
 }) {
-  const rows: Array<{
-    step: number;
-    label: string;
-    value: string;
-  }> = [
-    {
-      step: 0,
-      label: "Assessment",
-      value: `${formatSubject(
-        subject
-      )} · ${formatGoal(goal)}`,
-    },
-    {
-      step: 1,
-      label: "Location",
-      value: `${data.locationLabel || "—"}${
-        data.locationLabel
-          ? ` · ${data.latitude.toFixed(
-              2
-            )}, ${data.longitude.toFixed(2)}`
-          : ""
-      }`,
-    },
-    {
-      step: 1,
-      label:
-        subject === "facility"
-          ? "Area"
-          : subject === "equipment"
-            ? "Asset context"
-            : "Area",
-      value:
-        subject === "equipment"
-          ? "Evidence-driven equipment assessment"
-          : `${data.floorAreaM2} m² · ${data.buildingType}`,
-    },
-    {
-      step: 2,
-      label: "Envelope",
-      value: `${MATERIAL_PRESETS[
-        data.wallMaterialId
-      ].label} / ${
-        MATERIAL_PRESETS[data.roofMaterialId]
-          .label
-      } / ${
-        MATERIAL_PRESETS[
-          data.windowMaterialId
-        ].label
-      }`,
-    },
-    {
-      step: 3,
-      label: "HVAC",
-      value:
-        data.hvacSystemType === "dont_know"
-          ? "Unknown"
-          : `${HVAC_SYSTEM_LABELS[
-              data.hvacSystemType
-            ]} · ${data.capacityValue.toFixed(
-              1
-            )} ${data.capacityUnit}`,
-    },
-    {
-      step: 4,
-      label: "Reported symptoms",
-      value:
-        data.reportedIssues.length > 0
-          ? data.reportedIssues.join(", ")
-          : "None reported",
-    },
-  ];
+  const subjectText = SUBJECTS.find((item) => item.value === subject)?.label ?? "Not selected";
+  const goalText = GOALS.find((item) => item.value === goal)?.label ?? "Not selected";
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-8">
       <div>
-        <h2 className="font-display text-2xl text-paper">
-          Review assessment
-        </h2>
-
-        <p className="mt-1 text-sm text-steel">
-          Confirm the available context before the next engineering
-          layer.
-        </p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-steel">Step 04</p>
+        <h2 className="font-display mt-1 text-2xl text-paper">Ready to build the model.</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-steel">The next stage converts evidence into a structured asset model, attaches confidence and provenance, then runs the engineering layer.</p>
       </div>
 
-      <ul className="divide-y divide-steel/20 border border-steel/20">
-        {rows.map((row) => (
-          <li key={`${row.step}-${row.label}`}>
-            <button
-              type="button"
-              onClick={() => onJump(row.step)}
-              className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left hover:bg-paper/5"
-            >
-              <span className="text-[11px] uppercase tracking-[0.14em] text-steel">
-                {row.label}
-              </span>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Summary label="Assessment" value={subjectText} />
+        <Summary label="Decision target" value={goalText} />
+        <Summary label="Evidence" value={`${fileCount} file${fileCount === 1 ? "" : "s"} · ${evidenceKinds.length} source type${evidenceKinds.length === 1 ? "" : "s"}`} />
+        <Summary label="Observed symptoms" value={issues.length ? issues.map((id) => ISSUE_OPTIONS.find((item) => item[0] === id)?.[1] ?? id).join(", ") : "None reported"} />
+        {subject !== "equipment" ? <Summary label="Location" value={data.locationLabel || "Not locked"} /> : <Summary label="Site location" value="Not required for initial equipment assessment" />}
+        <Summary label="Manual inputs" value="Minimal · remaining variables can remain unknown" />
+      </div>
 
-              <span className="max-w-[70%] text-right text-sm text-paper">
-                {row.value}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      {subject !== "building" ? (
-        <div className="border border-gold/25 bg-gold/[0.03] p-4">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-gold">
-            Evidence-first path
-          </p>
-
-          <p className="mt-2 text-sm leading-relaxed text-steel">
-            This assessment will not invent engineering values
-            just to produce a result. Facility and equipment analysis
-            will use evidence, digital-shadow models, observed-versus-
-            expected behaviour, and validated calculations before a
-            retrofit decision is issued.
-          </p>
-        </div>
-      ) : null}
+      <div className="border border-teal/25 bg-teal/5 p-5">
+        <p className="text-sm text-paper">What happens after this?</p>
+        <p className="mt-2 text-xs leading-relaxed text-steel">Evidence → AI extraction → confidence/provenance → digital shadow → expected vs observed → engineering validation → retrofit simulation → ranked action sequence.</p>
+      </div>
     </section>
   );
 }
 
-const DEMO_INPUT_LABEL = "Bengaluru, India";
-
-function formatSubject(
-  subject: AssessmentSubject | null
-): string {
-  if (!subject) {
-    return "Not selected";
-  }
-
-  if (subject === "building") {
-    return "Building";
-  }
-
-  if (subject === "facility") {
-    return "Facility";
-  }
-
-  return "Equipment";
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-[10px] uppercase tracking-[0.16em] text-steel">{label}</span>
+      <div className="mt-2">{children}</div>
+    </label>
+  );
 }
 
-function formatGoal(
-  goal: AssessmentGoal | null
-): string {
-  if (!goal) {
-    return "Not selected";
-  }
-
-  const labels: Record<
-    AssessmentGoal,
-    string
-  > = {
-    energy: "Energy",
-    performance: "Performance",
-    comfort: "Comfort",
-    reliability: "Reliability",
-    retrofit: "Retrofit planning",
-    unknown: "Not sure",
-  };
-
-  return labels[goal];
+function Summary({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-steel/20 p-4">
+      <p className="text-[10px] uppercase tracking-[0.15em] text-steel">{label}</p>
+      <p className="mt-2 text-sm leading-relaxed text-paper">{value}</p>
+    </div>
+  );
 }
