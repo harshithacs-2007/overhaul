@@ -15,6 +15,7 @@ import DigitalTwinConsole from "./DigitalTwinConsole";
 import DecisionProvenancePanel from "./DecisionProvenancePanel";
 import RetrofitIntelligenceSuite from "./RetrofitIntelligenceSuite";
 import MachineRetrofitMatrix from "./MachineRetrofitMatrix";
+import ScanFusionPanel from "./ScanFusionPanel";
 import { useEffect, useMemo, useState } from "react";
 import { sanitizeTwinModel, type TwinModel } from "@/lib/engineering/twinModel";
 
@@ -100,6 +101,7 @@ export default function AssessmentExperience() {
       {twin ? <LiveTwinStudio scope={scope} title={title} values={values} twin={twin} /> : null}
       {twin ? <DigitalTwinConsole scope={scope} values={values} /> : null}
       <DatasetIntelligencePanel extracts={extracts}/><DatasetPhysicsBridgePanel extracts={extracts} values={values}/><RegionalConstraintPanel climate={climate} values={values}/><ModelEvidencePanel/>
+      {roomScan?.sectors?.length ? <ScanFusionPanel /> : null}
       {twin ? <TwinObjectInspector scan={roomScan} values={values}/> : null}
       <RetrofitPathfinder scope={scope} values={values}/>{scope === "equipment" ? <MachineRetrofitMatrix assetClass={assessment?.assetClass} values={values}/> : null}<RetrofitStressLab scope={scope} values={values} climate={climate}/><RetrofitIntelligenceSuite scope={scope} values={values} extracts={extracts} climate={climate}/><UniversalDecisionWorkspaceV2/>
       {twin ? <AssetTwinViewport scope={scope} title={title} assetClass={assetClass} evidenceIds={evidenceIds} values={values} twin={twin}/> : null}<DecisionProvenancePanel scope={scope} label={title} extracts={extracts}/>
