@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
+import { buildEquipmentReference } from "@/lib/engineering/equipmentReference";
 import { diagnoseResiduals, type DiagnosticDomain } from "@/lib/engineering/diagnosisEngine";
 
-type Extraction = { observations?: Array<{ field: string; numericValue: number | null; unit: string | null; confidence: number }> };
+type RawObservation = { field: string; numericValue: number | null; unit: string | null; confidence: number };
+type Extraction = { evidenceId?: string; evidenceType?: string; observations?: RawObservation[] };
 
 type Signal = { key: string; observed: number; expected: number; unit: string; toleranceRelative: number; confidence: number };
 
@@ -21,23 +23,19 @@ function buildSignals(extracts: Extraction[]): Signal[] {
     }
   }
 
-  const expected = new Map<string, number>();
-  try {
-    const raw = typeof window !== "undefined" ? sessionStorage.getItem("overhaul:equipment-expectations") : null;
-    if (raw) {
-      const parsed = JSON.parse(raw) as Array<{ key?: string; expected?: number; unit?: string; toleranceRelative?: number }>;
-      for (const item of parsed) {
-        if (item.key && typeof item.expected === "number" && Number.isFinite(item.expected)) expected.set(canonical(item.key), item.expected);
-      }
-    }
-  } catch {
-    // Deliberately no fallback to observed values: expectations must remain independent.
-  }
+  const references = buildEquipmentReference(extracts);
+  const expected = new Map(references.map((item) => [canonical(item.key), item]));
 
-  const tolerances: Record<string, number> = { power_kw: 0.1, capacity_kw: 0.1, flow_m3h: 0.1, pressure_bar: 0.1, supply_temp_c: 0.1, return_temp_c: 0.1, speed_rpm: 0.1 };
   return Array.from(values.entries())
     .filter(([key]) => expected.has(key))
-    .map(([key, item]) => ({ key, observed: item.value, expected: expected.get(key) as number, unit: item.unit, toleranceRelative: tolerances[key] ?? 0.1, confidence: item.confidence }));
+    .map(([key, item]) => ({
+      key,
+      observed: item.value,
+      expected: expected.get(key)!.expected,
+      unit: item.unit || expected.get(key)!.unit,
+      toleranceRelative: expected.get(key)!.toleranceRelative,
+      confidence: item.confidence,
+    }));
 }
 
 export default function DiagnosticPanel({ extracts, domain = "equipment" }: { extracts: Extraction[]; domain?: DiagnosticDomain }) {
@@ -51,14 +49,12 @@ export default function DiagnosticPanel({ extracts, domain = "equipment" }: { ex
         <div className="mt-1 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 className="font-display text-3xl sm:text-4xl">Residual → cause → evidence → action.</h2>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-steel">OVERHAUL does not turn an abnormal signal directly into a replacement recommendation. It identifies the strongest supported cause candidates and asks for the smallest discriminating measurement needed to separate them.</p>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-steel">OVERHAUL does not turn an abnormal signal directly into a replacement recommendation. It identifies supported cause candidates and asks for the smallest discriminating measurement needed to separate them.</p>
           </div>
           <span className="font-mono text-[9px] uppercase text-steel">{signals.length} comparable signals · {domain}</span>
         </div>
 
-        {result.status === "no-abnormality" ? (
-          <div className="mt-5 border border-teal/25 bg-teal/5 p-4 text-sm text-paper">No abnormal residuals exceeded their configured evidence tolerance.</div>
-        ) : null}
+        {result.status === "no-abnormality" ? <div className="mt-5 border border-teal/25 bg-teal/5 p-4 text-sm text-paper">No abnormal residuals exceeded their configured evidence tolerance.</div> : null}
 
         {result.status === "insufficient-evidence" ? (
           <div className="mt-5 border border-clay/25 bg-clay/5 p-4">
