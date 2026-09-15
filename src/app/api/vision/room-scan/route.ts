@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientIp, rateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,12 +56,17 @@ async function toDataUrl(file: File) {
 }
 
 export async function POST(request: Request) {
+  const rl = rateLimit(`vision-room-scan:${clientIp(request)}`, 30, 60_000);
+  if (!rl.ok) return NextResponse.json({ error: "Camera analysis rate limit exceeded. Try again shortly." }, { status: 429 });
+
   try {
     const form = await request.formData();
     const file = form.get("file");
-    const scope = String(form.get("scope") || "room");
-    const sector = Number(form.get("sector") || 0);
-    const sectorCount = Math.max(1, Number(form.get("sectorCount") || 12));
+    const scope = String(form.get("scope") || "room").slice(0, 40);
+    const rawSector = Number(form.get("sector") || 0);
+    const rawSectorCount = Number(form.get("sectorCount") || 12);
+    const sector = Number.isFinite(rawSector) ? Math.max(0, Math.min(99, rawSector)) : 0;
+    const sectorCount = Number.isFinite(rawSectorCount) ? Math.max(1, Math.min(100, rawSectorCount)) : 12;
 
     if (!(file instanceof File)) return NextResponse.json({ error: "Scan frame is required." }, { status: 400 });
     if (file.size <= 0 || file.size > MAX_BYTES) return NextResponse.json({ error: "Scan frame must be <= 8 MB." }, { status: 413 });
@@ -93,7 +99,7 @@ export async function POST(request: Request) {
     const content = payload.choices?.[0]?.message?.content;
     if (!content) return NextResponse.json({ error: "Computer vision returned no structured result." }, { status: 502 });
     const result = JSON.parse(content);
-    return NextResponse.json({ result: { ...result, model: MODEL, provider: "Nebius Token Factory / NVIDIA Nemotron", sector, sectorCount } });
+    return NextResponse.json({ result: { ...result, model: MODEL, provider: "Nebius Token Factory / NVIDIA Nemotron", sector, sectorCount }, meta: { rateLimitRemaining: rl.remaining } });
   } catch (error) {
     console.error("Room scan route error", error);
     return NextResponse.json({ error: "Computer vision analysis failed." }, { status: 500 });
