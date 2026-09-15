@@ -1,4 +1,4 @@
-import OverhaulIntake from "@/components/overhaul/OverhaulIntake";
+import OverhaulIntake from "@/components/overhaul/OverhaulIntakeV2";
 
 export default function HomePage() {
   return <OverhaulIntake />;
