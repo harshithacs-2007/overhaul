@@ -1,8 +1,10 @@
 /**
- * Engineering-facing adapter specifications for the datasets available locally.
- * These mappings are intentionally conservative: a field is promoted into the
- * engineering model only when its name/semantics are explicit enough to support
- * the downstream calculation. Raw columns remain auditable through provenance.
+ * Engineering-facing adapter specifications for datasets available to OVERHAUL.
+ *
+ * These mappings are intentionally conservative. A source field is promoted into
+ * a physical engineering quantity only when the source semantics are explicit.
+ * Encoded ResStock/RESCAST option values remain categorical evidence until a
+ * verified option/code lookup has been applied.
  */
 
 export type EngineeringDomain =
@@ -65,7 +67,7 @@ export const ENGINEERING_ADAPTERS: EngineeringAdapterSpec[] = [
       { canonical: "faultState", aliases: ["fault", "fault_state", "fault_code", "alarm"], kind: "category" },
     ],
     notes: [
-      "Fault labels are diagnostic evidence; they do not by themselves establish root cause severity.",
+      "Fault labels are diagnostic evidence; they do not by themselves establish root-cause severity.",
       "Do not treat a dataset fault label as a live measurement for another facility without provenance.",
     ],
   },
@@ -75,17 +77,42 @@ export const ENGINEERING_ADAPTERS: EngineeringAdapterSpec[] = [
     subjectType: "building",
     pathPatterns: ["rescast", "house_features"],
     fields: [
-      { canonical: "buildingId", aliases: ["building_id", "home_id", "house_id", "id"], kind: "identifier" },
-      { canonical: "floorAreaM2", aliases: ["floor_area", "floor_area_m2", "conditioned_floor_area"], unit: "m²", kind: "measurement" },
-      { canonical: "occupants", aliases: ["occupants", "occupancy", "number_of_occupants"], kind: "measurement" },
-      { canonical: "annualEnergyKwh", aliases: ["annual_energy", "annual_energy_kwh", "site_energy"], unit: "kWh", kind: "measurement" },
-      { canonical: "heatingSystem", aliases: ["heating_system", "heating_equipment"], kind: "category" },
-      { canonical: "coolingSystem", aliases: ["cooling_system", "cooling_equipment"], kind: "category" },
-      { canonical: "wallAreaM2", aliases: ["wall_area", "wall_area_m2"], unit: "m²", kind: "measurement" },
-      { canonical: "windowAreaM2", aliases: ["window_area", "window_area_m2", "glazing_area"], unit: "m²", kind: "measurement" },
+      { canonical: "buildingId", aliases: ["bldg_id", "building_id", "home_id", "house_id", "id"], kind: "identifier" },
+      { canonical: "latitude", aliases: ["build_existing_model.weather_file_latitude", "weather_file_latitude"], kind: "location" },
+      { canonical: "longitude", aliases: ["build_existing_model.weather_file_longitude", "weather_file_longitude"], kind: "location" },
+      { canonical: "bedrooms", aliases: ["build_existing_model.bedrooms", "bedrooms"], kind: "measurement" },
+      { canonical: "stories", aliases: ["build_existing_model.geometry_stories", "geometry_stories"], kind: "measurement" },
+      { canonical: "climateZone", aliases: ["build_existing_model.ashrae_iecc_climate_zone_2004", "ashrae_iecc_climate_zone_2004"], kind: "category" },
+      { canonical: "climateZoneSubcategory", aliases: ["build_existing_model.ashrae_iecc_climate_zone_2004_2_a_split", "ashrae_iecc_climate_zone_2004_2_a_split"], kind: "category" },
+      { canonical: "buildingAmericaClimateZone", aliases: ["build_existing_model.building_america_climate_zone", "building_america_climate_zone"], kind: "category" },
+      { canonical: "buildingType", aliases: ["build_existing_model.geometry_building_type_acs", "geometry_building_type_acs"], kind: "category" },
+      { canonical: "floorAreaOption", aliases: ["build_existing_model.geometry_floor_area", "geometry_floor_area"], kind: "category" },
+      { canonical: "floorAreaBin", aliases: ["build_existing_model.geometry_floor_area_bin", "geometry_floor_area_bin"], kind: "category" },
+      { canonical: "foundationType", aliases: ["build_existing_model.geometry_foundation_type", "geometry_foundation_type"], kind: "category" },
+      { canonical: "wallType", aliases: ["build_existing_model.geometry_wall_type", "geometry_wall_type"], kind: "category" },
+      { canonical: "wallExteriorFinish", aliases: ["build_existing_model.geometry_wall_exterior_finish", "geometry_wall_exterior_finish"], kind: "category" },
+      { canonical: "coolingSystem", aliases: ["build_existing_model.hvac_cooling_type", "hvac_cooling_type"], kind: "category" },
+      { canonical: "heatingSystem", aliases: ["build_existing_model.hvac_heating_type", "hvac_heating_type"], kind: "category" },
+      { canonical: "heatingSystemAndFuel", aliases: ["build_existing_model.hvac_heating_type_and_fuel", "hvac_heating_type_and_fuel"], kind: "category" },
+      { canonical: "heatingFuel", aliases: ["build_existing_model.heating_fuel", "heating_fuel"], kind: "category" },
+      { canonical: "sharedHVACSystem", aliases: ["build_existing_model.hvac_has_shared_system", "hvac_has_shared_system"], kind: "category" },
+      { canonical: "ceilingInsulation", aliases: ["build_existing_model.insulation_ceiling", "insulation_ceiling"], kind: "category" },
+      { canonical: "floorInsulation", aliases: ["build_existing_model.insulation_floor", "insulation_floor"], kind: "category" },
+      { canonical: "foundationWallInsulation", aliases: ["build_existing_model.insulation_foundation_wall", "insulation_foundation_wall"], kind: "category" },
+      { canonical: "rimJoistInsulation", aliases: ["build_existing_model.insulation_rim_joist", "insulation_rim_joist"], kind: "category" },
+      { canonical: "roofInsulation", aliases: ["build_existing_model.insulation_roof", "insulation_roof"], kind: "category" },
+      { canonical: "slabInsulation", aliases: ["build_existing_model.insulation_slab", "insulation_slab"], kind: "category" },
+      { canonical: "wallInsulation", aliases: ["build_existing_model.insulation_wall", "insulation_wall"], kind: "category" },
+      { canonical: "windowOption", aliases: ["build_existing_model.windows", "windows"], kind: "category" },
+      { canonical: "windowAreaOption", aliases: ["build_existing_model.window_areas", "window_areas"], kind: "category" },
+      { canonical: "occupantsOption", aliases: ["build_existing_model.occupants", "occupants"], kind: "category" },
+      { canonical: "orientation", aliases: ["build_existing_model.orientation", "orientation"], kind: "category" },
+      { canonical: "vintage", aliases: ["build_existing_model.vintage", "vintage"], kind: "category" },
     ],
     notes: [
-      "Use the building dataset for statistical priors and validation; do not silently substitute a stock archetype for user evidence.",
+      "RESCAST static fields are primarily encoded housing-characteristic options; numeric codes must not be interpreted as SI engineering quantities without the verified option lookup.",
+      "Use verified decoded options as priors/context for engineering reconstruction, not as substitutes for direct user evidence.",
+      "The dataset also has separate 15-minute time-series variables for electricity, indoor/outdoor temperature, setpoints, humidity, solar radiation and wind; those are stronger candidates for behavioral calibration when linked to a building record.",
     ],
   },
   {
@@ -102,7 +129,7 @@ export const ENGINEERING_ADAPTERS: EngineeringAdapterSpec[] = [
       { canonical: "embodiedCarbon", aliases: ["embodied_carbon", "ghg", "co2e"], kind: "measurement" },
     ],
     notes: [
-      "Cost, savings, lifetime and carbon units must be confirmed from the source metadata before optimization.",
+      "Cost, savings, lifetime and carbon units must be confirmed from source metadata before optimization.",
     ],
   },
 ];
