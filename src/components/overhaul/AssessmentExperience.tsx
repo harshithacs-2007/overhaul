@@ -57,15 +57,22 @@ export default function AssessmentExperience() {
   }, [extracts, supplemental]);
 
   useEffect(() => {
-    if (!assessment || !extracts.length || sessionStorage.getItem("overhaul:supabase-project-id")) return;
+    if (!assessment || !extracts.length) return;
     let cancelled = false;
     const persist = async () => {
       try {
-        const response = await fetch("/api/persistence/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessment, extractions: extracts, supplemental, roomScan, climate }) });
-        const payload = await response.json();
+        const projectId = sessionStorage.getItem("overhaul:supabase-project-id") || undefined;
+        const assetId = sessionStorage.getItem("overhaul:supabase-asset-id") || undefined;
+        const response = await fetch("/api/persistence/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, assetId, assessment, extractions: extracts, supplemental, roomScan, climate }) });
+        const payload = await response.json() as { projectId?: string; assetId?: string; error?: string };
         if (!response.ok) throw new Error(payload.error || "Persistence failed");
-        if (!cancelled && payload.projectId) { sessionStorage.setItem("overhaul:supabase-project-id", payload.projectId); sessionStorage.setItem("overhaul:supabase-asset-id", payload.assetId || ""); }
-      } catch (error) { console.warn("Supabase persistence unavailable; continuing with local assessment state.", error); }
+        if (!cancelled && payload.projectId) {
+          sessionStorage.setItem("overhaul:supabase-project-id", payload.projectId);
+          sessionStorage.setItem("overhaul:supabase-asset-id", payload.assetId || "");
+        }
+      } catch (error) {
+        console.warn("Supabase persistence unavailable; continuing with local assessment state.", error);
+      }
     };
     void persist();
     return () => { cancelled = true; };
