@@ -257,15 +257,32 @@ const registry: InterventionDefinition[] = [
     name: "Reduce unnecessary runtime",
     category: "controls",
     scopes: ["building", "facility", "equipment"],
-    description: "Quantifies savings only when baseline and proposed runtime are supplied for the same load and efficiency.",
-    equation: "E = P × h; ΔE = P × (h_new − h_old)",
+    description: "Quantifies savings when baseline and proposed runtime are supplied for the same average operating power.",
+    equation: "P = Q / η; E = P × h; ΔE = P × (h_new − h_old)",
     requiredInputs: ["loadKW", "efficiency", "baselineRuntimeHours", "proposedRuntimeHours", "electricityRateINRPerKWh"],
     evidenceNeeds: ["measured operating load", "efficiency/COP", "baseline runtime", "proposed controlled runtime"],
     simulate: (context) => {
       const definition = registry[5];
       const needs = missing(context, definition.requiredInputs);
+      if (needs.length) return savingsResult(definition, context, 0, 0, 0, 0, ["Same average operating power is assumed; schedule changes, cycling losses, comfort, and process constraints require separate checks.", "Baseline and proposed runtime must be independently measured or specified."], needs);
       const power = context.loadKW! / context.efficiency!;
-      return savingsResult(definition, context, 0, power, power, Math.max(context.proposedRuntimeHours!, 0), ["Same average operating power is assumed; schedule changes, cycling losses, comfort, and process constraints require separate checks.", `Baseline runtime: ${context.baselineRuntimeHours!.toFixed(1)} h; proposed runtime: ${context.proposedRuntimeHours!.toFixed(1)} h.`], needs);
+      const baselineEnergy = power * context.baselineRuntimeHours!;
+      const proposedEnergy = power * context.proposedRuntimeHours!;
+      const rate = context.electricityRateINRPerKWh!;
+      const savingINR = (baselineEnergy - proposedEnergy) * rate;
+      return {
+        interventionId: definition.id,
+        status: context.proposedRuntimeHours! > context.baselineRuntimeHours! ? "infeasible" : "simulated",
+        equation: definition.equation,
+        assumptions: ["Average operating power is held constant; cycling losses, comfort, production constraints and startup energy require separate validation.", `Baseline runtime: ${context.baselineRuntimeHours!.toFixed(1)} h; proposed runtime: ${context.proposedRuntimeHours!.toFixed(1)} h.`],
+        missingInputs: [],
+        constraints: definition.constraints ?? [],
+        thermalDeltaKW: 0,
+        electricalPowerDeltaKW: 0,
+        annualEnergyDeltaKWh: proposedEnergy - baselineEnergy,
+        annualSavingINR: savingINR,
+        applicability: [definition.description, context.proposedRuntimeHours! > context.baselineRuntimeHours! ? "Proposed runtime exceeds baseline; this is not a savings intervention." : "Runtime reduction produces a direct E = P × h reduction under the stated assumptions."],
+      };
     },
   },
   {
