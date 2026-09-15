@@ -1,6 +1,7 @@
 export * from "./digitalShadow";
 export * from "./physicsSimulation";
 export * from "./physicsAdapters";
+export * from "./datasetPhysics";
 export * from "./rescastShadow";
 export * from "./interventionEngine";
 export * from "./economicsEngine";
