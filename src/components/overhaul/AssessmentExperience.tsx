@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Scope = "building" | "facility" | "equipment";
 type Assessment = { assessmentSubject?: Scope; siteName?: string | null; assetClass?: string | null; industry?: string; assessmentGoal?: string; evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }> };
-type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number; sourceText?: string }>; warnings?: string[]; model?: string; sourceKind?: string; sourceName?: string; evidenceType?: string };
+type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number; sourceText: string }>; warnings?: string[]; model?: string; sourceKind?: string; sourceName?: string; evidenceType?: string };
 type Values = Record<string, number | string | null>;
 type RoomScan = { scope?: Scope; coveragePercent?: number; completed?: boolean; sectors?: Array<{ id: string; sector: number; result?: unknown }> };
 type ClimateContext = { location?: string; temperature?: number; humidity?: number; min?: number; max?: number; rain?: number; source?: string; fetchedAt?: string } | null;
