@@ -25,6 +25,7 @@ type Extraction = {
   evidenceType?: string;
 };
 type Values = Record<string, number | string | null>;
+type RoomScan = { scope?: Scope; coveragePercent?: number; completed?: boolean; sectors?: Array<{ id: string; sector: number; result?: unknown }> };
 
 function readJson<T>(key: string, fallback: T): T {
   try { return JSON.parse(sessionStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; }
@@ -38,12 +39,14 @@ export default function AssessmentExperience() {
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [extracts, setExtracts] = useState<Extraction[]>([]);
   const [supplemental, setSupplemental] = useState<Values>({});
+  const [roomScan, setRoomScan] = useState<RoomScan | null>(null);
 
   useEffect(() => {
     const sync = () => {
       setAssessment(readJson<Assessment | null>("overhaul:assessment", null));
       setExtracts(readJson<Extraction[]>("overhaul:evidence-extractions", []));
       setSupplemental(readJson<Values>("overhaul:supplemental-values", {}));
+      setRoomScan(readJson<RoomScan | null>("overhaul:room-scan", null));
     };
     sync();
     window.addEventListener("overhaul:supplemental-change", sync);
@@ -79,7 +82,7 @@ export default function AssessmentExperience() {
         const response = await fetch("/api/persistence/snapshot", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assessment, extractions: extracts, supplemental }),
+          body: JSON.stringify({ assessment, extractions: extracts, supplemental, roomScan }),
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Persistence failed");
@@ -93,7 +96,7 @@ export default function AssessmentExperience() {
     };
     void persist();
     return () => { cancelled = true; };
-  }, [assessment, extracts, supplemental]);
+  }, [assessment, extracts, supplemental, roomScan]);
 
   const scope = assessment?.assessmentSubject || "building";
   const title = assessment?.siteName || assessment?.assetClass || (scope === "equipment" ? "Asset model" : "Site model");
