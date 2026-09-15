@@ -3,6 +3,7 @@ export * from "./physicsSimulation";
 export * from "./physicsAdapters";
 export * from "./datasetPhysics";
 export * from "./machineRetrofitEngine";
+export * from "./climateConstraints";
 export * from "./rescastShadow";
 export * from "./interventionEngine";
 export * from "./economicsEngine";
