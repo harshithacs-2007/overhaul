@@ -45,15 +45,14 @@ function buildImpact(scope: Scope, values: Values): TwinImpact | null {
     const efficiency = n(values, "efficiency");
     const hours = n(values, "annual_hours", "runtime_hours", "annual_runtime_hours");
     const proposedEfficiency = n(values, "proposed_efficiency", "proposed_cop");
-    const baselineHours = n(values, "baseline_runtime_hours");
     const proposedHours = n(values, "proposed_runtime_hours");
     if (load == null || capacity == null || efficiency == null || hours == null) return null;
 
     const baseline = { loadKW: load, ratedCapacityKW: capacity, efficiency, annualHours: hours, electricityRateINRPerKWh: 0 };
-    let retrofit: Partial<typeof baseline> | undefined;
-    if (proposedEfficiency != null && proposedEfficiency !== efficiency) retrofit = { efficiency: proposedEfficiency };
-    else if (baselineHours != null && proposedHours != null && baselineHours !== proposedHours) retrofit = { annualHours: proposedHours };
-    if (!retrofit) return null;
+    const retrofit: Partial<typeof baseline> = {};
+    if (proposedEfficiency != null && proposedEfficiency !== efficiency) retrofit.efficiency = proposedEfficiency;
+    if (proposedHours != null && proposedHours !== hours) retrofit.annualHours = proposedHours;
+    if (!Object.keys(retrofit).length) return null;
 
     const result = simulatePhysicsScenario({ subject: "equipment", baseline, retrofit });
     return { current: result.baseline, proposed: result.proposed, savingPercent: result.delta.savingPercent, deltaPower: result.delta.electricalPowerKW, deltaLoad: result.delta.thermalLoadKW };
@@ -69,12 +68,16 @@ function buildImpact(scope: Scope, values: Values): TwinImpact | null {
   const hours = n(values, "annual_cooling_hours", "cooling_hours");
   const proposedR = n(values, "proposed_r_value_m2k_w");
   const currentR = n(values, "existing_r_value_m2k_w");
-  if (floorArea == null || ua == null || envelopeArea == null || !Number.isFinite(outdoor) || !Number.isFinite(indoor) || capacity == null || cop == null || hours == null) return null;
-  if (proposedR == null || proposedR === currentR || proposedR <= 0) return null;
+  const proposedEfficiency = n(values, "proposed_efficiency", "proposed_cop");
+  if (floorArea == null || ua == null || !Number.isFinite(outdoor) || !Number.isFinite(indoor) || capacity == null || cop == null || hours == null) return null;
+
+  const retrofit: Record<string, number> = {};
+  if (proposedR != null && proposedR !== currentR && proposedR > 0 && envelopeArea != null) retrofit.envelopeUA_W_per_K = envelopeArea / proposedR;
+  if (proposedEfficiency != null && proposedEfficiency !== cop) retrofit.hvacCOP = proposedEfficiency;
+  if (!Object.keys(retrofit).length) return null;
 
   const baseline = { floorAreaM2: floorArea, envelopeUA_W_per_K: ua, ventilationM3s: n(values, "ventilation_m3s") ?? 0, outdoorTempC: outdoor, indoorTempC: indoor, solarGainKW: n(values, "solar_gain_kw") ?? 0, internalGainKW: n(values, "internal_gain_kw") ?? 0, hvacCapacityKW: capacity, hvacCOP: cop, annualCoolingHours: hours, electricityRateINRPerKWh: 0 };
-  const proposedUA = envelopeArea / proposedR;
-  const result = simulatePhysicsScenario({ subject: scope === "facility" ? "facility" : "building", baseline, retrofit: { envelopeUA_W_per_K: proposedUA } });
+  const result = simulatePhysicsScenario({ subject: scope === "facility" ? "facility" : "building", baseline, retrofit });
   return { current: result.baseline, proposed: result.proposed, savingPercent: result.delta.savingPercent, deltaPower: result.delta.electricalPowerKW, deltaLoad: result.delta.thermalLoadKW };
 }
 
@@ -101,8 +104,10 @@ export default function LiveTwinStudio({ scope, title, values }: { scope: Scope;
   const proposedEfficiency = n(values, "proposed_efficiency", "proposed_cop");
   const proposedR = n(values, "proposed_r_value_m2k_w");
   const currentR = n(values, "existing_r_value_m2k_w");
+  const proposedHours = n(values, "proposed_runtime_hours");
+  const currentHours = n(values, "annual_hours", "runtime_hours", "annual_runtime_hours");
   const hasGeometry = Boolean(width && depth && height);
-  const hasRetrofit = Boolean((proposedEfficiency && efficiency && proposedEfficiency !== efficiency) || (proposedR && currentR && proposedR !== currentR));
+  const hasRetrofit = Boolean((proposedEfficiency && efficiency && proposedEfficiency !== efficiency) || (proposedR && proposedR !== currentR) || (proposedHours && proposedHours !== currentHours));
   const hasPhysics = Boolean(values.capacity_kw || values.load_kw || values.power_kw || values.annual_hours || values.annual_cooling_hours);
   const impact = useMemo(() => buildImpact(scope, values), [scope, values]);
   const displayed = impact ? (mode === "retrofit" ? impact.proposed : impact.current) : null;
@@ -114,7 +119,7 @@ export default function LiveTwinStudio({ scope, title, values }: { scope: Scope;
         <div>
           <p className="font-mono text-[8px] uppercase tracking-[0.18em] text-teal">Live engineering workspace</p>
           <h2 className="mt-1 font-display text-3xl">The causal twin.</h2>
-          <p className="mt-1 max-w-3xl text-[10px] leading-5 text-steel">Geometry stays evidence-bound while motion, utilization and counterfactual state changes are driven by the same deterministic physics used by OVERHAUL's decision layer.</p>
+          <p className="mt-1 max-w-3xl text-[10px] leading-5 text-steel">Geometry stays evidence-bound while motion, utilization and counterfactual state changes are driven by the same deterministic physics used by OVERHAUL&apos;s decision layer.</p>
         </div>
         <div className="flex gap-1 border border-steel/15 bg-black/25 p-1">
           {["observed", "retrofit"].map((value) => (
@@ -141,7 +146,7 @@ export default function LiveTwinStudio({ scope, title, values }: { scope: Scope;
 
           <Panel title="Scene inventory">{detected.length ? detected.map(([label, count]) => <div key={label} className="flex items-center justify-between border-b border-steel/10 py-2 text-[9px]"><span>{label}</span><span className="font-mono text-teal">×{count}</span></div>) : <p className="text-[9px] leading-4 text-steel">Scan a room, appliance or machine to seed the evidence map. Objects are not assigned coordinates the scan never established.</p>}</Panel>
 
-          <Panel title="Engineering state"><div className="space-y-2 text-[9px] text-steel"><p><span className="text-paper">Rated capacity:</span> {values.capacity_kw != null ? `${values.capacity_kw} kW` : "not established"}</p><p><span className="text-paper">Observed load:</span> {values.load_kw != null ? `${values.load_kw} kW` : "not established"}</p><p><span className="text-paper">Measured power:</span> {values.power_kw != null ? `${values.power_kw} kW` : "not measured"}</p><p><span className="text-paper">Baseline efficiency:</span> {efficiency != null ? efficiency : "not established"}</p>{proposedEfficiency != null ? <p><span className="text-paper">Proposed efficiency:</span> {proposedEfficiency}</p> : null}{proposedR != null ? <p><span className="text-paper">Proposed R-value:</span> {proposedR} m²K/W</p> : null}</div></Panel>
+          <Panel title="Engineering state"><div className="space-y-2 text-[9px] text-steel"><p><span className="text-paper">Rated capacity:</span> {values.capacity_kw != null ? `${values.capacity_kw} kW` : "not established"}</p><p><span className="text-paper">Observed load:</span> {values.load_kw != null ? `${values.load_kw} kW` : "not established"}</p><p><span className="text-paper">Measured power:</span> {values.power_kw != null ? `${values.power_kw} kW` : "not measured"}</p><p><span className="text-paper">Baseline efficiency:</span> {efficiency != null ? efficiency : "not established"}</p>{proposedEfficiency != null ? <p><span className="text-paper">Proposed efficiency:</span> {proposedEfficiency}</p> : null}{proposedHours != null ? <p><span className="text-paper">Proposed runtime:</span> {proposedHours} h/yr</p> : null}{proposedR != null ? <p><span className="text-paper">Proposed R-value:</span> {proposedR} m²K/W</p> : null}</div></Panel>
 
           <Panel title="Why this is different" accent><p className="text-[9px] leading-5 text-steel">OVERHAUL treats the 3D scene as a visual front-end to an evidence graph. Scan findings, measured values, model assumptions and retrofit consequences remain separate. A change is allowed to move the twin only when the engineering layer can explain the change.</p></Panel>
 
