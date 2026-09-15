@@ -6,31 +6,33 @@ Perception models extract facts from photos, PDFs and uploaded datasets. Learned
 
 ## RESCAST building model
 
-The prepared `house_features_rescast-100k.parquet` dataset is a 104,423-row building-feature table used by the project. The trainer records the exact input file SHA-256 in its exported artifact.
+The project's `house_features_rescast-100k.parquet` is a static building-feature table with 104,423 prepared records. It is useful for building-context screening, but it does **not** by itself constitute a measured energy target table. Do not train a target model against a column that is not actually present.
 
 ```powershell
 python scripts\ml\train_rescast_surrogate.py "C:\Users\Welcome\Downloads\Dataset\buildings\house_features_rescast-100k.parquet" --output public\models\rescast_surrogate.json
 ```
 
-The training protocol favors auditability over a flashy score:
+The trainer is intentionally strict. It only trains targets that exist in the supplied table, records the exact input SHA-256, excludes encoded categorical IDs from linear treatment, uses a grouped `bldg_id` split when available, performs train-only imputation, selects ridge regularization on validation data, and exports held-out metrics and residual diagnostics. A missing target causes a clean training failure rather than a fabricated model.
 
-- deterministic random seed (`42`)
-- grouped train/validation/test split by `bldg_id` when available, reducing identity leakage
-- conservative quantitative feature whitelist; encoded categorical IDs are excluded from linear treatment
-- train-only median imputation
-- standardized ridge regression with validation-selected regularization
-- held-out test metrics against a mean baseline
-- P50/P90 residual and feature-distance diagnostics
-- exact dataset hash and sampling metadata in the artifact
-- explicit screening-only and unit-verification metadata
+## RESCAST time-series model
 
-The runtime loader accepts the JSON artifact and exposes held-out metrics, training provenance, missing-feature count and a residual-based uncertainty range. A learned prediction must never overwrite a supplied measurement or deterministic physics output.
+The RESCAST release also contains a much larger 15-minute time-series dataset. Its documented schema includes `Time`, `building_id`, total electricity load, conditioned-space temperature, heating/cooling setpoints, outdoor dry/wet-bulb temperature, relative humidity, wind speed and solar radiation. citeturn980998search1turn980998search3
+
+Use the dedicated trainer when the time-series shards are available locally:
+
+```powershell
+python scripts\ml\train_rescast_timeseries_surrogate.py "C:\path\to\RESCAST-100k\timeseries" --output public\models\rescast_timeseries_surrogate.json
+```
+
+This pipeline reservoir-samples rows across parquet shards so the full multi-billion-row dataset does not need to be loaded into memory, engineers weather/setpoint/time features, and evaluates with a `building_id`-grouped 70/15/15 split. It predicts the dataset-native electricity-load target as a **learned expected-load screen**, not as a retrofit savings calculator.
+
+The published RESCAST repository identifies the time-series dataset as a 15-minute building-energy series and lists 3.66 billion rows in the public release. citeturn980998search2
 
 ## Dataset-backed engineering rules
 
-A dataset mean, P95, trend or range is evidence about the uploaded sample. It is not automatically a design condition, annual baseline, rated value or retrofit saving. OVERHAUL keeps these concepts separate in both the prompt layer and deterministic engineering layer.
+A dataset mean, P95, trend, correlation or range is evidence about the uploaded sample. It is not automatically a design condition, annual baseline, rated value or retrofit saving. OVERHAUL keeps these concepts separate in both the prompt layer and deterministic engineering layer.
 
-When timestamps are present, ingestion records the observed time window and median sampling interval so the application can distinguish a short sample from a longer operating history.
+When timestamps are present, ingestion records the observed time window and median sampling interval so the application can distinguish a short sample from a longer operating history. Descriptive correlations are presented as associations only; they are not treated as causal retrofit effects.
 
 ## Equipment models
 
@@ -44,7 +46,7 @@ Before committing a trained artifact:
 
 1. Record dataset ID and SHA-256.
 2. Verify non-empty train/validation/test splits with identity-safe separation.
-3. Confirm test metrics improve meaningfully over the mean baseline.
+3. Confirm held-out metrics improve meaningfully over the baseline.
 4. Verify target units against dataset documentation.
 5. Review residual and out-of-distribution behavior.
 6. Keep the model explicitly screening/cross-check only; deterministic engineering remains authoritative.
