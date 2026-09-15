@@ -21,6 +21,19 @@ The product is **evidence-first and engineering-constrained**. AI/ML components 
 - Dataset adapters for climate, building, HVAC/FDD, retrofit, materials, and geometry sources
 - RESCAST surrogate infrastructure where a trained/calibrated model is appropriate
 - Audit-oriented provenance and uncertainty handling
+- Parametric Blender/CAD interoperability with OBJ, DXF footprint, and OVERHAUL semantic manifest exports
+
+## Geometry and BIM/CAD interoperability
+
+OVERHAUL separates **semantic engineering identity** from visualization geometry. The asset twin exposes a metric geometry bridge only when width, depth, and height are evidenced or explicitly supplied. Missing geometry stays visibly unresolved rather than being fabricated.
+
+The interchange layer exports:
+
+- **OBJ** — explicit parametric geometry suitable for Blender inspection and downstream mesh workflows
+- **DXF** — metric footprint geometry suitable for CAD drafting workflows
+- **OVERHAUL manifest JSON** — asset class, dimensions, engineering parameters, evidence IDs, coordinate convention, and provenance
+
+The manifest is the continuity layer for a future IFC/BIM adapter: the engineering model is not reduced to an untraceable mesh when it leaves OVERHAUL.
 
 ## Data grounding
 
