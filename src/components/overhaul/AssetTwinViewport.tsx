@@ -1,143 +1,25 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { buildAssetObj, buildDxfFootprint, buildInteropManifest, type InteropAsset } from "@/lib/engineering/assetInteroperability";
+import { buildAssetObj, buildDxfFootprint, buildInteropManifest, buildTwinDxf, buildTwinObj, type InteropAsset } from "@/lib/engineering/assetInteroperability";
+import type { TwinModel } from "@/lib/engineering/twinModel";
 
-type Props = {
-  scope: "building" | "facility" | "equipment";
-  title: string;
-  assetClass: string;
-  evidenceIds: string[];
-  values: Record<string, number | string | null | undefined>;
-};
+type Props={scope:"building"|"facility"|"equipment";title:string;assetClass:string;evidenceIds:string[];values:Record<string,number|string|null|undefined>;twin?:TwinModel|null};
+function downloadText(filename:string,content:string,type:string){const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);}
+function n(values:Props["values"],...keys:string[]){for(const key of keys){const value=Number(values[key]);if(Number.isFinite(value)&&value>0)return value;}return null;}
 
-function downloadText(filename: string, content: string, type: string) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+export default function AssetTwinViewport({scope,title,assetClass,evidenceIds,values,twin}:Props){
+  const [tab,setTab]=useState<"model"|"evidence">("model");
+  const width=twin?.overall.widthM??n(values,"geometry_width_m","width_m"); const depth=twin?.overall.depthM??n(values,"geometry_depth_m","depth_m"); const height=twin?.overall.heightM??n(values,"geometry_height_m","height_m");
+  const asset:InteropAsset=useMemo(()=>({id:"asset-core",name:title,scope,className:assetClass,widthM:width??1,depthM:depth??1,heightM:height??1,capacityKW:n(values,"capacity_kw"),powerKW:n(values,"power_kw"),evidenceIds}),[assetClass,depth,evidenceIds,height,scope,title,values,width]);
+  const manifest=useMemo(()=>buildInteropManifest(asset,values,twin),[asset,twin,values]); const safeName=title.replace(/\W+/g,"-").replace(/^-|-$/g,"")||"overhaul-twin";
+  const generated=Boolean(twin); const hasDims=Boolean(width&&depth&&height);
+  const floorPlan=twin?{rooms:twin.rooms,walls:twin.walls,assets:twin.assets}:{rooms:[],walls:[],assets:[]};
+  return <section className="overflow-hidden border border-teal/20 bg-[#070b0b] shadow-[0_24px_100px_rgba(0,0,0,.22)]"><div className="flex flex-wrap items-start justify-between gap-4 border-b border-steel/10 px-5 py-4"><div><p className="font-mono text-[8px] uppercase tracking-[.16em] text-teal">Reconstructed twin · CAD bridge</p><h2 className="mt-1 font-display text-3xl">The model is an artifact, not a mock.</h2><p className="mt-1 max-w-3xl text-[10px] leading-5 text-steel">A generated floor-plan model is stored as semantic rooms, walls, openings and assets, then exported into editable geometry rather than a screenshot.</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={!generated&&!hasDims} onClick={()=>downloadText(`${safeName}.obj`,generated?buildTwinObj(twin!):buildAssetObj(asset),"text/plain;charset=utf-8")} className="border border-teal/30 px-3 py-2 font-mono text-[8px] uppercase text-teal disabled:opacity-30">Export OBJ</button><button type="button" disabled={!generated&&!hasDims} onClick={()=>downloadText(`${safeName}.dxf`,generated?buildTwinDxf(twin!):buildDxfFootprint(asset),"application/dxf")} className="border border-steel/25 px-3 py-2 font-mono text-[8px] uppercase text-paper disabled:opacity-30">Export DXF</button><button type="button" onClick={()=>downloadText(`${safeName}.overhaul.json`,JSON.stringify(manifest,null,2),"application/json")} className="border border-steel/25 px-3 py-2 font-mono text-[8px] uppercase text-paper">Twin manifest</button></div></div>
+    <div className="grid gap-0 xl:grid-cols-[1fr_.75fr]"><div className="relative min-h-[430px] border-b border-steel/10 bg-[#040707] xl:border-b-0 xl:border-r"><div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.035)_1px,transparent_1px)] bg-[size:32px_32px]"/>
+      <svg viewBox={`0 0 ${Math.max(twin?.overall.widthM??10,10)} ${Math.max(twin?.overall.depthM??8,8)}`} className="relative h-[430px] w-full p-8" role="img" aria-label="Generated floor plan and asset layout">{twin?.rooms.map((room)=><rect key={room.id} x={room.x} y={room.y} width={room.widthM} height={room.depthM} fill="rgba(44,224,202,.045)" stroke="rgba(44,224,202,.28)" strokeWidth=".04"/>)}{twin?.walls.map((wall)=><line key={wall.id} x1={wall.a.x} y1={wall.a.y} x2={wall.b.x} y2={wall.b.y} stroke="rgba(220,240,236,.7)" strokeWidth={Math.max(wall.thicknessM,.08)} vectorEffect="non-scaling-stroke"/>)}{twin?.openings.map((opening)=><circle key={opening.id} cx={opening.x} cy={opening.y} r={Math.max(opening.widthM*.18,.08)} fill={opening.type==="window"?"rgba(44,224,202,.8)":"rgba(228,184,96,.8)"}/>)}{twin?.assets.map((item)=><g key={item.id}><rect x={item.x-item.widthM/2} y={item.y-item.depthM/2} width={item.widthM} height={item.depthM} fill="rgba(228,184,96,.16)" stroke="rgba(228,184,96,.8)" strokeWidth=".05" transform={`rotate(${item.rotationDeg} ${item.x} ${item.y})`}/><text x={item.x} y={item.y} textAnchor="middle" dominantBaseline="middle" fill="rgba(239,248,246,.8)" fontSize=".32">{item.label.slice(0,16)}</text></g>)}</svg><div className="absolute bottom-4 left-4 right-4 flex justify-between gap-3 font-mono text-[7px] uppercase tracking-[.12em] text-steel"><span>{generated?twin?.geometryBasis:"parametric geometry"}</span><span>{generated?`${floorPlan.rooms.length} rooms · ${floorPlan.walls.length} walls · ${floorPlan.assets.length} assets`:"no reconstructed topology"}</span></div></div>
+      <aside className="p-5"><div className="flex border border-steel/15 bg-black/20 p-1"><button type="button" onClick={()=>setTab("model")} className={`flex-1 px-3 py-2 font-mono text-[8px] uppercase ${tab==="model"?"bg-teal text-navy":"text-steel"}`}>Model</button><button type="button" onClick={()=>setTab("evidence")} className={`flex-1 px-3 py-2 font-mono text-[8px] uppercase ${tab==="evidence"?"bg-teal text-navy":"text-steel"}`}>Evidence links</button></div>
+        {tab==="model"?<div className="mt-4 space-y-3"><Data label="Overall" value={`${(width??0).toFixed(2)} × ${(depth??0).toFixed(2)} × ${(height??0).toFixed(2)} m`}/><Data label="Geometry basis" value={generated?twin!.geometryBasis:hasDims?"parametric dimensions":"unresolved"}/><Data label="Twin confidence" value={generated?`${Math.round(twin!.confidence*100)}%`:"—"}/><Data label="Rooms / walls" value={`${floorPlan.rooms.length} / ${floorPlan.walls.length}`}/><Data label="Visible assets" value={String(floorPlan.assets.length)}/>{twin?.warnings?.length?<div className="border border-amber-200/20 bg-amber-200/[.025] p-3 text-[9px] leading-4 text-amber-100">{twin.warnings.slice(0,4).map((w,i)=><p key={i}>› {w}</p>)}</div>:null}</div>:<div className="mt-4 space-y-2">{evidenceIds.map((id)=><div key={id} className="border border-steel/10 p-3"><p className="font-mono text-[7px] uppercase text-teal">linked evidence</p><p className="mt-1 break-all text-[9px] text-paper">{id}</p></div>)}<p className="mt-4 text-[9px] leading-5 text-steel">Each reconstructed object keeps a source type and confidence so the CAD artifact can be traced back to evidence rather than becoming an opaque mesh.</p></div>}
+      </aside></div></section>;
 }
-
-function initialDimension(values: Props["values"], primary: string, fallback: string) {
-  const value = Number(values[primary] ?? values[fallback]);
-  return Number.isFinite(value) && value > 0 ? String(value) : "";
-}
-
-export default function AssetTwinViewport({ scope, title, assetClass, evidenceIds, values }: Props) {
-  const [selected, setSelected] = useState<"asset" | "hvac" | "service">("asset");
-  const [manual, setManual] = useState({
-    width: initialDimension(values, "geometry_width_m", "width_m"),
-    depth: initialDimension(values, "geometry_depth_m", "depth_m"),
-    height: initialDimension(values, "geometry_height_m", "height_m"),
-  });
-  const [saved, setSaved] = useState(false);
-
-  const parsedWidth = Number(values.geometry_width_m ?? values.width_m);
-  const parsedDepth = Number(values.geometry_depth_m ?? values.depth_m);
-  const parsedHeight = Number(values.geometry_height_m ?? values.height_m);
-  const evidenceGeometryEstablished = [parsedWidth, parsedDepth, parsedHeight].every((x) => Number.isFinite(x) && x > 0);
-  const manualWidth = Number(manual.width);
-  const manualDepth = Number(manual.depth);
-  const manualHeight = Number(manual.height);
-  const manualGeometryEstablished = [manualWidth, manualDepth, manualHeight].every((x) => Number.isFinite(x) && x > 0);
-  const dimensionsEstablished = evidenceGeometryEstablished || manualGeometryEstablished;
-  const width = evidenceGeometryEstablished ? parsedWidth : manualWidth;
-  const depth = evidenceGeometryEstablished ? parsedDepth : manualDepth;
-  const height = evidenceGeometryEstablished ? parsedHeight : manualHeight;
-
-  const asset: InteropAsset = useMemo(() => ({
-    id: "asset-core",
-    name: title,
-    scope,
-    className: assetClass,
-    widthM: width,
-    depthM: depth,
-    heightM: height,
-    capacityKW: Number.isFinite(Number(values.capacity_kw)) ? Number(values.capacity_kw) : null,
-    powerKW: Number.isFinite(Number(values.power_kw)) ? Number(values.power_kw) : null,
-    evidenceIds,
-  }), [assetClass, depth, evidenceIds, height, scope, title, values, width]);
-  const manifest = useMemo(() => buildInteropManifest(asset, values), [asset, values]);
-  const objects = scope === "equipment"
-    ? [["asset", assetClass, "Primary machine envelope"], ["hvac", "PROCESS / DRIVE", "Functional operating package"], ["service", "SERVICE CLEARANCE", "Maintenance envelope"]] as const
-    : [["asset", scope === "facility" ? "FACILITY MASS" : "BUILDING MASS", "Parametric gross geometry"], ["hvac", "HVAC ZONE", "Mechanical-system placeholder linked to model"], ["service", "PLANT / SERVICE", "Access and equipment planning zone"]] as const;
-
-  function saveManualGeometry() {
-    if (!manualGeometryEstablished || evidenceGeometryEstablished) return;
-    try {
-      const existing = JSON.parse(sessionStorage.getItem("overhaul:supplemental-values") || "{}");
-      const next = { ...existing, geometry_width_m: manualWidth, geometry_depth_m: manualDepth, geometry_height_m: manualHeight };
-      sessionStorage.setItem("overhaul:supplemental-values", JSON.stringify(next));
-      window.dispatchEvent(new CustomEvent("overhaul:supplemental-change"));
-      setSaved(true);
-    } catch {
-      setSaved(false);
-    }
-  }
-
-  return (
-    <section className="border border-steel/15 bg-[#070b0b]">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-steel/10 px-5 py-4">
-        <div>
-          <p className="font-mono text-[8px] uppercase tracking-[0.16em] text-teal">Semantic digital twin · geometry bridge</p>
-          <h2 className="mt-1 font-display text-3xl">See the asset as a model.</h2>
-          <p className="mt-1 max-w-2xl text-[10px] leading-5 text-steel">Metric geometry is locked to evidence or user-supplied dimensions. No photograph is silently converted into measurements.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button disabled={!dimensionsEstablished} type="button" onClick={() => downloadText(`${title.replace(/\W+/g, "-")}.obj`, buildAssetObj(asset), "text/plain;charset=utf-8")} className={`border px-3 py-2 font-mono text-[8px] uppercase ${!dimensionsEstablished ? "cursor-not-allowed border-steel/10 text-steel/50" : "border-teal/35 text-teal hover:bg-teal/5"}`}>Export OBJ · Blender</button>
-          <button disabled={!dimensionsEstablished} type="button" onClick={() => downloadText(`${title.replace(/\W+/g, "-")}.dxf`, buildDxfFootprint(asset), "application/dxf")} className={`border px-3 py-2 font-mono text-[8px] uppercase ${!dimensionsEstablished ? "cursor-not-allowed border-steel/10 text-steel/50" : "border-steel/25 text-paper hover:border-teal"}`}>Export DXF · CAD</button>
-          <button type="button" onClick={() => downloadText(`${title.replace(/\W+/g, "-")}.overhaul.json`, JSON.stringify(manifest, null, 2), "application/json")} className="border border-steel/25 px-3 py-2 font-mono text-[8px] uppercase text-paper hover:border-teal">Export twin manifest</button>
-        </div>
-      </div>
-
-      <div className="grid gap-0 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="min-h-[420px] overflow-hidden border-b border-steel/10 xl:border-b-0 xl:border-r">
-          <div className="relative h-full min-h-[420px] bg-[#050808]">
-            <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "linear-gradient(rgba(138,155,168,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(138,155,168,.12) 1px,transparent 1px)", backgroundSize: "34px 34px" }} />
-            <div className={`absolute left-1/2 top-[54%] h-[250px] w-[360px] -translate-x-1/2 -translate-y-1/2 [transform:skewY(-7deg)_rotateX(54deg)] border ${dimensionsEstablished ? "border-teal/50 bg-teal/[0.06] shadow-[0_0_60px_rgba(70,220,200,0.06)]" : "border-steel/30 bg-steel/[0.03]"}`}>
-              <div className="absolute inset-5 border border-teal/25" />
-              {scope !== "equipment" && <div className="absolute left-[43%] top-[22%] h-[95px] w-[95px] border border-amber-200/25 bg-amber-200/[0.03]" />}
-              {scope === "equipment" && <><div className="absolute left-[34%] top-[30%] h-[65px] w-[110px] border border-amber-200/25 bg-amber-200/[0.04]" /><div className="absolute left-[49%] top-[49%] h-[18px] w-[80px] border border-teal/30" /></>}
-              {!dimensionsEstablished && <div className="absolute inset-0 grid place-items-center bg-black/35 text-center"><div><p className="font-mono text-[8px] uppercase tracking-[0.14em] text-amber-200">Geometry unresolved</p><p className="mt-2 px-8 text-[10px] text-steel">Supply width × depth × height below to unlock metric CAD/Blender export.</p></div></div>}
-            </div>
-            <div className="absolute bottom-4 left-4 right-4 flex flex-wrap items-center justify-between gap-2 font-mono text-[8px] uppercase tracking-[0.12em] text-steel">
-              <span>Coordinate system · right-handed / Z-up</span>
-              <span>{dimensionsEstablished ? `${width.toFixed(2)} × ${depth.toFixed(2)} × ${height.toFixed(2)} m` : "dimensions unresolved"}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-5">
-          <div className="grid gap-2">
-            {objects.map(([id, label, note]) => <button type="button" key={id} onClick={() => setSelected(id)} className={`border p-3 text-left ${selected === id ? "border-teal/40 bg-teal/[0.05]" : "border-steel/15"}`}><div className="flex items-center justify-between gap-3"><span className="font-mono text-[8px] uppercase tracking-[0.12em] text-teal">{id}</span><span className="font-mono text-[8px] uppercase text-steel">linked</span></div><p className="mt-2 text-sm">{label}</p><p className="mt-1 text-[9px] leading-4 text-steel">{note}</p></button>)}
-          </div>
-
-          {!evidenceGeometryEstablished && (
-            <div className="mt-4 border border-amber-200/20 bg-amber-200/[0.03] p-4">
-              <div className="flex items-start justify-between gap-3"><div><p className="font-mono text-[8px] uppercase tracking-[0.12em] text-amber-200">Resolve geometry</p><p className="mt-1 text-[9px] leading-4 text-steel">Enter known dimensions. These become explicit supplemental inputs, not extracted facts.</p></div><span className="font-mono text-[7px] uppercase text-steel">m</span></div>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <Dimension label="Width" value={manual.width} onChange={(value) => { setManual((x) => ({ ...x, width: value })); setSaved(false); }} />
-                <Dimension label="Depth" value={manual.depth} onChange={(value) => { setManual((x) => ({ ...x, depth: value })); setSaved(false); }} />
-                <Dimension label="Height" value={manual.height} onChange={(value) => { setManual((x) => ({ ...x, height: value })); setSaved(false); }} />
-              </div>
-              <button disabled={!manualGeometryEstablished} type="button" onClick={saveManualGeometry} className="mt-3 border border-amber-200/30 px-3 py-2 font-mono text-[8px] uppercase text-amber-100 disabled:cursor-not-allowed disabled:opacity-40">{saved ? "Geometry saved" : "Use dimensions"}</button>
-              <span className="ml-3 font-mono text-[7px] uppercase text-steel">Basis · user supplied</span>
-            </div>
-          )}
-
-          <div className="mt-4 grid grid-cols-2 gap-2"><Data label="Capacity" value={values.capacity_kw != null ? `${values.capacity_kw} kW` : "—"}/><Data label="Power" value={values.power_kw != null ? `${values.power_kw} kW` : "—"}/><Data label="Evidence links" value={String(evidenceIds.length)}/><Data label="Geometry basis" value={evidenceGeometryEstablished ? "Metric / evidenced" : manualGeometryEstablished ? "Metric / user supplied" : "Schematic only"}/></div>
-          <div className="mt-4 border border-steel/15 p-4"><p className="font-mono text-[8px] uppercase text-steel">Interoperability contract</p><p className="mt-2 text-[10px] leading-5 text-steel">OBJ carries explicit geometry for Blender. DXF carries the footprint for CAD. The OVERHAUL manifest carries semantic identity, engineering parameters and evidence provenance so the model is not reduced to a dumb mesh.</p><p className="mt-3 font-mono text-[8px] uppercase text-teal">Targets · Blender · AutoCAD/DXF · BIM/IFC adapter</p></div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Dimension({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label className="block"><span className="font-mono text-[7px] uppercase tracking-[0.1em] text-steel">{label}</span><input inputMode="decimal" type="number" min="0.01" step="0.01" value={value} onChange={(e) => onChange(e.target.value)} className="mt-1 w-full border border-steel/15 bg-black/20 px-2 py-2 font-mono text-[10px] text-paper outline-none focus:border-teal/40" placeholder="0.00" /></label>;
-}
-
-function Data({ label, value }: { label: string; value: string }) { return <div className="border border-steel/10 p-3"><p className="font-mono text-[7px] uppercase tracking-[0.1em] text-steel">{label}</p><p className="mt-1 text-sm">{value}</p></div>; }
+function Data({label,value}:{label:string;value:string}){return <div className="border border-steel/10 p-3"><p className="font-mono text-[7px] uppercase text-steel">{label}</p><p className="mt-1 text-sm text-paper">{value}</p></div>;}
