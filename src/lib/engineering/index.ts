@@ -11,3 +11,4 @@ export * from "./equipmentPerformanceCurve";
 export * from "./uncertaintyEngine";
 export * from "./nextBestMeasurement";
 export * from "./decisionEngine";
+export * from "./assetInteroperability";
