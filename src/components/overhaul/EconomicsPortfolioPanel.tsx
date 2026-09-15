@@ -10,7 +10,7 @@ export default function EconomicsPortfolioPanel() {
     { id: "hvac", name: "HVAC efficiency upgrade", capexINR: 260000, annualSavingINR: 88000, annualEnergySavingKWh: 6900, carbonSavingKgPerYear: 5400, downtimeHours: 8 },
     { id: "controls", name: "Controls + runtime optimisation", capexINR: 75000, annualSavingINR: 36000, annualEnergySavingKWh: 2800, carbonSavingKgPerYear: 2200, downtimeHours: 1, priorityWeight: 1.1 },
   ], []);
-  const portfolio = useMemo(() => optimizeRetrofitPortfolio(demoOptions, { budgetINR: 350000, maxDowntimeHours: 8, maxActions: 3 }), [demoOptions]);
+  const portfolio = useMemo(() => optimizeRetrofitPortfolio(demoOptions, { budgetINR: 350000, maxDowntimeHours: 8, maxActions: 3, minAnnualSavingINR: 100000 }), [demoOptions]);
   const economics = useMemo(() => calculateRetrofitEconomics({ capexINR: portfolio.totalCapexINR, annualSavingINR: portfolio.totalAnnualSavingINR, annualEnergySavingKWh: portfolio.totalAnnualEnergySavingKWh, analysisYears: 10, discountRate: 0.08, escalationRate: 0.03 }), [portfolio]);
 
   return (
@@ -20,9 +20,16 @@ export default function EconomicsPortfolioPanel() {
           <div>
             <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-teal">Decision economics + constrained portfolio</p>
             <h2 className="font-display mt-1 text-3xl sm:text-4xl">Choose what should happen first.</h2>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-steel">The decision layer combines engineering outputs with explicit budget and downtime constraints. Example values are isolated to this demonstration surface; real deployments should substitute evidence-backed intervention outputs.</p>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-steel">The decision layer combines engineering outputs with explicit budget, downtime and target constraints. Example values are isolated to this demonstration surface; real deployments should substitute evidence-backed intervention outputs.</p>
           </div>
-          <div className="font-mono text-[9px] uppercase text-steel">budget ₹3.5L · downtime 8h</div>
+          <div className="font-mono text-[9px] uppercase text-steel">budget ₹3.5L · downtime 8h · saving target ₹1L/yr</div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className={`border px-2 py-1 font-mono text-[8px] uppercase ${portfolio.targetStatus === "met" ? "border-teal/30 text-teal" : portfolio.targetStatus === "shortfall" ? "border-clay/30 text-clay" : "border-steel/20 text-steel"}`}>
+            target {portfolio.targetStatus}
+          </span>
+          {portfolio.targetShortfall.map((reason) => <span key={reason} className="text-[10px] text-clay">{reason}</span>)}
         </div>
 
         <div className="mt-5 grid gap-3 lg:grid-cols-4">
