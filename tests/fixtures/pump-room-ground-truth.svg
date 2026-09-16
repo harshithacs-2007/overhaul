@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#111827"/>
+  <rect y="520" width="1280" height="200" fill="#374151"/>
+  <rect x="180" y="260" width="380" height="170" rx="34" fill="#9ca3af" stroke="#f3f4f6" stroke-width="8"/>
+  <circle cx="365" cy="345" r="78" fill="#4b5563" stroke="#f3f4f6" stroke-width="8"/>
+  <circle cx="365" cy="345" r="24" fill="#d1d5db"/>
+  <rect x="510" y="300" width="135" height="90" fill="#6b7280" stroke="#f3f4f6" stroke-width="7"/>
+  <rect x="645" y="332" width="260" height="26" rx="13" fill="#60a5fa" stroke="#f3f4f6" stroke-width="5"/>
+  <rect x="920" y="245" width="150" height="170" rx="14" fill="#d1d5db" stroke="#f3f4f6" stroke-width="8"/>
+  <circle cx="995" cy="330" r="36" fill="#111827" stroke="#60a5fa" stroke-width="6"/>
+  <text x="235" y="490" font-family="Arial" font-size="32" fill="#ffffff">PUMP</text>
+  <text x="900" y="470" font-family="Arial" font-size="32" fill="#ffffff">VFD</text>
+  <rect x="90" y="100" width="310" height="80" rx="10" fill="#f9fafb"/>
+  <text x="120" y="152" font-family="Arial" font-size="34" fill="#111827">40 kW LOAD</text>
+  <rect x="470" y="100" width="310" height="80" rx="10" fill="#f9fafb"/>
+  <text x="500" y="152" font-family="Arial" font-size="34" fill="#111827">50 kW RATED</text>
+</svg>
