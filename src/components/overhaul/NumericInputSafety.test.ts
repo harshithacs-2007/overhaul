@@ -14,12 +14,17 @@ describe("parseEngineeringNumber", () => {
     expect(parseEngineeringNumber("1_250")).toBe(1250);
   });
 
+  it("accepts scientific notation for engineering-scale values", () => {
+    expect(parseEngineeringNumber("1e3")).toBe(1000);
+    expect(parseEngineeringNumber("2.5E-2")).toBe(0.025);
+  });
+
   it("returns null for blank or unsafe values", () => {
     expect(parseEngineeringNumber("")).toBeNull();
     expect(parseEngineeringNumber("   ")).toBeNull();
     expect(parseEngineeringNumber("NaN")).toBeNull();
     expect(parseEngineeringNumber("Infinity")).toBeNull();
     expect(parseEngineeringNumber("12kW")).toBeNull();
-    expect(parseEngineeringNumber("1e3")).toBeNull();
+    expect(parseEngineeringNumber("1.2.3")).toBeNull();
   });
 });
