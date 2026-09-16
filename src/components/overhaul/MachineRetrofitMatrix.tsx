@@ -48,13 +48,11 @@ export default function MachineRetrofitMatrix({ assetClass, values }: { assetCla
   const currentCOP = readNumber(values, "cop");
   const currentRuntime = readNumber(values, "annual_hours", "runtime_hours", "annual_runtime_hours");
   const rate = readNumber(values, "electricity_rate_inr_per_kwh", "electricity_rate", "tariff_inr_per_kwh");
-  const target = {
-    targetEfficiency: Number(targetEfficiency) > 0 ? Number(targetEfficiency) : null,
-    targetCOP: Number(targetCOP) > 0 ? Number(targetCOP) : null,
-    targetRuntimeHours: Number(targetRuntime) > 0 ? Number(targetRuntime) : null,
-  };
+  const targetEfficiencyValue = Number(targetEfficiency) > 0 ? Number(targetEfficiency) : null;
+  const targetCOPValue = Number(targetCOP) > 0 ? Number(targetCOP) : null;
+  const targetRuntimeValue = Number(targetRuntime) > 0 ? Number(targetRuntime) : null;
   const baseline = useMemo(() => calculateMachineBaseline({ loadKW: currentLoad, ratedCapacityKW: currentCapacity, powerKW: currentPower, efficiency: currentEfficiency, cop: currentCOP, runtimeHours: currentRuntime, electricityRateINRPerKWh: rate }), [currentLoad, currentCapacity, currentPower, currentEfficiency, currentCOP, currentRuntime, rate]);
-  const simulation = useMemo(() => calculateMachineRetrofit({ loadKW: currentLoad, ratedCapacityKW: currentCapacity, powerKW: currentPower, efficiency: currentEfficiency, cop: currentCOP, runtimeHours: currentRuntime, electricityRateINRPerKWh: rate, targetEfficiency: target.targetEfficiency, targetCOP: target.targetCOP, targetRuntimeHours: target.targetRuntimeHours, title: selected?.title || "Machine retrofit" }), [currentLoad, currentCapacity, currentPower, currentEfficiency, currentCOP, currentRuntime, rate, target.targetEfficiency, target.targetCOP, target.targetRuntimeHours, selected?.title]);
+  const simulation = calculateMachineRetrofit({ loadKW: currentLoad, ratedCapacityKW: currentCapacity, powerKW: currentPower, efficiency: currentEfficiency, cop: currentCOP, runtimeHours: currentRuntime, electricityRateINRPerKWh: rate, targetEfficiency: targetEfficiencyValue, targetCOP: targetCOPValue, targetRuntimeHours: targetRuntimeValue, title: selected?.title || "Machine retrofit" });
 
   const persistTarget = (key: "proposed_efficiency" | "proposed_cop" | "proposed_runtime_hours", value: string) => {
     const parsed = Number(value);
