@@ -30,6 +30,7 @@ describe("controlled validation fixture integrity", () => {
     expect(rows[0]).toBe("timestamp,power_kw,flow_m3s,suction_kpa,discharge_kpa");
     expect(rows).toHaveLength(11);
     expect(rows[1]).toContain("14.8");
-    expect(rows.at(-1)).toContain("18.0");
+    expect(rows.some((row) => row.includes(",18.0,"))).toBe(true);
+    expect(rows.at(-1)).toContain("15.7");
   });
 });
