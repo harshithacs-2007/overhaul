@@ -1,1 +1,0 @@
-Demo baseline reference: d2d6210e7bbe1f94fc61c503de0d8d96f96c0943 was the last verified pre-V2 UI baseline. Preserve the existing UI/UX; functional changes should be isolated from presentation changes.
