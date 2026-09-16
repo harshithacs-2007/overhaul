@@ -4,14 +4,12 @@ import type { TwinModel } from "@/lib/engineering/twinModel";
 import Twin3DCanvas from "./Twin3DCanvas";
 
 type Scope = "building" | "facility" | "equipment";
-type Values = Record<string, number | string | null | undefined>;
 
 type Props = {
   scope: Scope;
   title: string;
   observed: TwinModel;
   proposed: TwinModel;
-  values: Values;
   observedMetrics?: { load: number | null; power: number | null; energy: number | null; utilization: number | null; cost: number | null } | null;
   proposedMetrics?: { load: number | null; power: number | null; energy: number | null; utilization: number | null; cost: number | null } | null;
   savingPercent?: number | null;
