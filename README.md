@@ -83,3 +83,5 @@ The current `master` branch is CI-gated with `npm run lint`, `npx tsc --noEmit`,
 - `npm test` — calculation and engineering unit tests
 - `npm run lint` — ESLint checks
 - `npm run train:rescast` — train the RESCAST surrogate when the required local dataset/training inputs are available
+
+<!-- Vercel deployment heartbeat: 2026-09-16 -->
