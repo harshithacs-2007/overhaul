@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Material, Mesh, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
 import type { TwinModel } from "@/lib/engineering/twinModel";
 
@@ -9,9 +9,9 @@ type Props = { scope: Scope; mode: "observed" | "retrofit"; model: TwinModel | n
 
 export default function Twin3DCanvas({ model, title }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const modelSnapshot = useMemo(() => model, [model]);
 
   useEffect(() => {
-    const twin = model;
     let dead = false;
     let frame = 0;
     let dispose: (() => void) | undefined;
@@ -21,7 +21,8 @@ export default function Twin3DCanvas({ model, title }: Props) {
       const host = hostRef.current;
       host.replaceChildren();
       const fail = (message: string) => { host.replaceChildren(); const box = document.createElement("div"); box.className = "grid h-full min-h-[600px] place-items-center border border-amber-200/15 bg-[#050808] p-8 text-center font-mono text-[9px] uppercase tracking-[.1em] text-amber-200"; box.textContent = message; host.appendChild(box); };
-      if (!twin) { fail("3D twin blocked · no geometry evidence"); return; }
+      if (!modelSnapshot) { fail("3D twin blocked · no geometry evidence"); return; }
+      const twin = modelSnapshot;
       let scene: Scene, camera: PerspectiveCamera, renderer: WebGLRenderer;
       try { scene = new THREE.Scene(); scene.background = new THREE.Color(0x050808); scene.fog = new THREE.Fog(0x050808, 30, 90); camera = new THREE.PerspectiveCamera(42, 1, 0.01, 500); renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" }); } catch { fail("Interactive 3D is unavailable in this browser"); return; }
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.shadowMap.enabled = true; host.appendChild(renderer.domElement);
@@ -90,7 +91,7 @@ export default function Twin3DCanvas({ model, title }: Props) {
     };
     void mount();
     return () => { dead = true; dispose?.(); };
-  }, [model, title]);
+  }, [modelSnapshot, title]);
 
   return <div ref={hostRef} className="relative h-full min-h-[600px] w-full touch-none" aria-label={`${title} semantic generated 3D twin`} />;
 }
