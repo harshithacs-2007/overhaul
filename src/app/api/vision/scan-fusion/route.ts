@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { clientIp, rateLimit } from "@/lib/rateLimit";
+import { buildAssetRetrofitGraph } from "@/lib/engineering/assetRetrofitGraph";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ const schema = {
     nextEvidence: { type: "array", items: { type: "string" } },
   },
 };
+
+type FindingRow = Record<string, unknown>;
 
 function cleanText(value: unknown, max = 500) { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
 function norm(value: string) { return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\b(the|unit|asset|machine|equipment)\b/g, " ").replace(/\s+/g, " ").trim(); }
@@ -43,7 +46,7 @@ export async function POST(request: Request) {
         }) : [],
         engineering_clues: Array.isArray(row.engineering_clues) ? row.engineering_clues.slice(0, 8).map((x) => cleanText(x, 300)).filter(Boolean) : [],
         coverage_notes: Array.isArray(row.coverage_notes) ? row.coverage_notes.slice(0, 8).map((x) => cleanText(x, 300)).filter(Boolean) : [],
-        visible_details: row.visible_details && typeof row.visible_details === "object" ? Object.fromEntries(Object.entries(row.visible_details as Record<string, unknown>).slice(0, 12).map(([key, value]) => [cleanText(key, 80), cleanText(value, 180)])) : null,
+        visible_details: Array.isArray(row.visible_details) ? row.visible_details.slice(0, 12).map((detail) => detail && typeof detail === "object" ? { field: cleanText((detail as Record<string, unknown>).field, 80), value: cleanText((detail as Record<string, unknown>).value, 180), confidence: Math.max(0, Math.min(1, Number((detail as Record<string, unknown>).confidence) || 0)) } : null).filter(Boolean) : [],
       };
     });
     const prompt = `You are the cross-view reasoning layer in OVERHAUL's engineering retrofit system. Target scope: ${scope}. Consolidate independent visual analyses conservatively. Merge repeated visible objects, preserve only readable identity/specification text, and identify visible conditions without inventing engineering quantities. A repeat view increases visual confidence only when the same label/condition is supported by multiple sectors. Never call a visual condition a confirmed failure. Every finding must state required engineering verification. Return visibleDetails only for repeat-supported readable identity/specification facts. Never invent dimensions, severity, energy loss, temperatures, pressures, efficiency, structural integrity, or hidden components.\n\nAnalyses:\n${JSON.stringify(compact).slice(0, MAX_BYTES)}`;
@@ -70,8 +73,8 @@ export async function POST(request: Request) {
       }
     }
 
-    const findings = Array.isArray(result.findings) ? result.findings.map((finding) => {
-      const row = finding && typeof finding === "object" ? { ...(finding as Record<string, unknown>) } : {};
+    const findings = Array.isArray(result.findings) ? result.findings.map((finding): FindingRow => {
+      const row = finding && typeof finding === "object" ? { ...(finding as FindingRow) } : {};
       const label = cleanText(row.label, 160);
       const exact = conditionByLabel.get(norm(label));
       const labelViews = evidenceByLabel.get(norm(label));
@@ -84,8 +87,8 @@ export async function POST(request: Request) {
       return row;
     }) : [];
 
-    const objects = Array.isArray(result.objects) ? result.objects.map((object) => {
-      const row = object && typeof object === "object" ? { ...(object as Record<string, unknown>) } : {};
+    const objects = Array.isArray(result.objects) ? result.objects.map((object): FindingRow => {
+      const row = object && typeof object === "object" ? { ...(object as FindingRow) } : {};
       const supportingViews = evidenceByLabel.get(norm(cleanText(row.label, 160)))?.size || 1;
       row.views = supportingViews;
       row.confidence = Math.min(Math.max(0, Math.min(1, Number(row.confidence) || 0)), supportingViews >= 2 ? 0.92 : 0.68);
@@ -93,10 +96,10 @@ export async function POST(request: Request) {
     }) : [];
 
     const visibleDetails = Array.isArray(result.visibleDetails) ? result.visibleDetails.filter((detail) => {
-      const row = detail && typeof detail === "object" ? detail as Record<string, unknown> : {};
+      const row = detail && typeof detail === "object" ? detail as FindingRow : {};
       return (Number(row.views) || 0) >= 2;
-    }).map((detail) => {
-      const row = { ...(detail as Record<string, unknown>) };
+    }).map((detail): FindingRow => {
+      const row = { ...(detail as FindingRow) };
       const supportingViews = evidenceByLabel.get(norm(cleanText(row.label, 120)))?.size || 1;
       row.views = supportingViews;
       row.confidence = Math.min(Math.max(0, Math.min(1, Number(row.confidence) || 0)), supportingViews >= 2 ? 0.92 : 0.68);
@@ -106,13 +109,17 @@ export async function POST(request: Request) {
     result.findings = findings;
     result.objects = objects;
     result.visibleDetails = visibleDetails;
-    const repeatConfirmed = findings.filter((finding) => Number((finding as Record<string, unknown>).views) >= 2).length;
-    const coverage = result.coverage && typeof result.coverage === "object" ? { ...(result.coverage as Record<string, unknown>) } : {};
+    const repeatConfirmed = findings.filter((finding) => Number(finding.views) >= 2).length;
+    const coverage = result.coverage && typeof result.coverage === "object" ? { ...(result.coverage as FindingRow) } : {};
     coverage.viewsAnalysed = compact.length;
     coverage.repeatConfirmed = repeatConfirmed;
     result.coverage = coverage;
 
-    return NextResponse.json({ result, model: MODEL, provider: "Nebius Token Factory / NVIDIA Nemotron", confidencePolicy: "server-enforced corroboration by camera sector" });
+    const detectedLabels = objects.map((object) => cleanText(object.label, 120)).filter(Boolean);
+    result.retrofitCandidates = buildAssetRetrofitGraph(detectedLabels);
+    result.retrofitGraphVersion = "overhaul.asset-retrofit-graph.v1";
+
+    return NextResponse.json({ result, model: MODEL, provider: "Nebius Token Factory / NVIDIA Nemotron", confidencePolicy: "server-enforced corroboration by camera sector", retrofitBridge: "deterministic asset-to-pathway graph" });
   } catch (error) {
     console.error("Scan fusion route error", error);
     return NextResponse.json({ error: "Cross-view scan analysis failed." }, { status: 500 });
