@@ -13,12 +13,15 @@ export type HourlyBuildingInput = {
   solarGainFactorM2: number;
   tariffINRPerKWh: number;
   climate: ClimateHour[];
+  /** Explicit measured/modelled HVAC fan/pump/auxiliary electrical draw while cooling. */
+  hvacAuxiliaryPowerKW?: number;
 };
 
 export type HourlyBuildingResult = {
   peakThermalLoadKW: number;
   peakElectricalPowerKW: number;
   annualCoolingEnergyKWh: number;
+  annualAuxiliaryEnergyKWh: number;
   annualCostINR: number;
   hoursOverCapacity: number;
   hoursWithCooling: number;
@@ -49,6 +52,7 @@ export function simulateBuildingHourly(input: HourlyBuildingInput): HourlyBuildi
   positive("Tariff", input.tariffINRPerKWh, true);
   positive("Internal gain", input.internalGainKW, true);
   positive("Solar gain factor", input.solarGainFactorM2, true);
+  const auxiliaryPowerKW = positive("HVAC auxiliary power", input.hvacAuxiliaryPowerKW ?? 0, true);
   if (input.climate.length < 8000) throw new Error("A complete annual hourly climate series is required for annual building energy calculation.");
 
   const AIR_DENSITY = 1.2;
@@ -56,6 +60,7 @@ export function simulateBuildingHourly(input: HourlyBuildingInput): HourlyBuildi
   let peakLoad = 0;
   let peakPower = 0;
   let annualEnergy = 0;
+  let annualAuxiliaryEnergy = 0;
   let sensibleEnergy = 0;
   let latentEnergy = 0;
   let hoursOverCapacity = 0;
@@ -64,7 +69,7 @@ export function simulateBuildingHourly(input: HourlyBuildingInput): HourlyBuildi
   let unmet = 0;
 
   for (const hour of input.climate) {
-    if (!Number.isFinite(hour.outdoorTempC) || !Number.isFinite(hour.outdoorRHPercent) || !Number.isFinite(hour.surfacePressureKPa)) throw new Error("Climate series contains invalid temperature, humidity, or pressure data.");
+    if (!Number.isFinite(hour.outdoorTempC) || !Number.isFinite(hour.outdoorRHPercent) || !Number.isFinite(hour.surfacePressureKPa) || !Number.isFinite(hour.solarIrradianceKWhM2) || hour.solarIrradianceKWhM2 < 0) throw new Error("Climate series contains invalid boundary-condition data.");
     const deltaT = Math.max(hour.outdoorTempC - input.indoorTempC, 0);
     const envelopeKW = envelopeUA * deltaT / 1000;
     const flowM3s = input.ventilationM3s + input.infiltrationM3s;
@@ -74,7 +79,6 @@ export function simulateBuildingHourly(input: HourlyBuildingInput): HourlyBuildi
     const moistureDelta = Math.max(outdoorW - indoorW, 0);
     const latentHeatKJPerKg = 2501 - 2.381 * Math.max(-20, Math.min(50, input.indoorTempC));
     const airExchangeLatentKW = flowM3s * AIR_DENSITY * moistureDelta * latentHeatKJPerKg;
-    // NASA POWER's ALLSKY_SFC_SW_DWN hourly value is used directly as hourly incident energy density.
     const solarKW = hour.solarIrradianceKWhM2 * input.solarGainFactorM2;
     const sensibleLoadKW = envelopeKW + airExchangeSensibleKW + solarKW + input.internalGainKW;
     const totalKW = Math.max(0, sensibleLoadKW + airExchangeLatentKW);
@@ -85,10 +89,26 @@ export function simulateBuildingHourly(input: HourlyBuildingInput): HourlyBuildi
     sensibleEnergy += sensibleLoadKW;
     latentEnergy += airExchangeLatentKW;
     const deliveredLoadKW = Math.min(totalKW, input.hvacCapacityKW);
-    annualEnergy += deliveredLoadKW / input.hvacCOP;
-    peakPower = Math.max(peakPower, deliveredLoadKW / input.hvacCOP);
+    const compressorPowerKW = deliveredLoadKW / input.hvacCOP;
+    annualEnergy += compressorPowerKW;
+    annualAuxiliaryEnergy += auxiliaryPowerKW;
+    peakPower = Math.max(peakPower, compressorPowerKW + auxiliaryPowerKW);
     if (totalKW > input.hvacCapacityKW) { hoursOverCapacity += 1; unmet += totalKW - input.hvacCapacityKW; }
   }
 
-  return { peakThermalLoadKW: peakLoad, peakElectricalPowerKW: peakPower, annualCoolingEnergyKWh: annualEnergy, annualCostINR: annualEnergy * input.tariffINRPerKWh, hoursOverCapacity, hoursWithCooling, averageCoolingLoadKW: loadSum / input.climate.length, unmetCoolingEnergyKWh: unmet, datasetHours: input.climate.length, sensibleCoolingEnergyKWh: sensibleEnergy, latentCoolingEnergyKWh: latentEnergy };
+  const annualElectricalEnergyKWh = annualEnergy + annualAuxiliaryEnergy;
+  return {
+    peakThermalLoadKW: peakLoad,
+    peakElectricalPowerKW: peakPower,
+    annualCoolingEnergyKWh: annualElectricalEnergyKWh,
+    annualAuxiliaryEnergyKWh: annualAuxiliaryEnergy,
+    annualCostINR: annualElectricalEnergyKWh * input.tariffINRPerKWh,
+    hoursOverCapacity,
+    hoursWithCooling,
+    averageCoolingLoadKW: loadSum / input.climate.length,
+    unmetCoolingEnergyKWh: unmet,
+    datasetHours: input.climate.length,
+    sensibleCoolingEnergyKWh: sensibleEnergy,
+    latentCoolingEnergyKWh: latentEnergy,
+  };
 }
