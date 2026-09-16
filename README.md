@@ -72,6 +72,10 @@ Pure engineering functions live under `src/lib/engineering/`, with dataset norma
 
 The UI is intentionally **retrofit-first**: users should provide the least information necessary to establish a defensible baseline, see candidate intervention consequences, compare current vs counterfactual states, and proceed toward implementation and verification.
 
+## Verified workflow
+
+The current `master` branch is CI-gated with `npm run lint`, `npx tsc --noEmit`, and `npm run build`. The machine retrofit path additionally exercises deterministic calculation tests for explicit baselines, partial bill history, input validation, and counterfactual target handling.
+
 ## Scripts
 
 - `npm run dev` — development server
