@@ -27,6 +27,17 @@ describe("machine retrofit calculations", () => {
     expect(result.gaps.some((gap) => gap.includes("month count"))).toBe(true);
   });
 
+  it("flags duty above rated capacity instead of silently treating it as valid utilisation", () => {
+    const result = calculateMachineBaseline({ loadKW: 12, ratedCapacityKW: 10, efficiency: 0.8, runtimeHours: 100 });
+    expect(result.gaps.some((gap) => gap.includes("rated capacity"))).toBe(true);
+  });
+
+  it("blocks impossible efficiency values", () => {
+    const result = calculateMachineBaseline({ loadKW: 5, efficiency: 1.2, runtimeHours: 100 });
+    expect(result.calculatedPowerKW).toBeNull();
+    expect(result.gaps.some((gap) => gap.includes("Efficiency must"))).toBe(true);
+  });
+
   it("blocks a retrofit what-if when no explicit target exists", () => {
     expect(calculateMachineRetrofit({ loadKW: 5, efficiency: 0.8, runtimeHours: 100 })).toBeNull();
   });
@@ -36,6 +47,10 @@ describe("machine retrofit calculations", () => {
     expect(result).not.toBeNull();
     expect(result?.powerKW).toBeCloseTo(5 / 0.9, 6);
     expect(result?.energySavingKWh).toBeCloseTo(62.5, 6);
+  });
+
+  it("does not claim a worse efficiency target as an efficiency saving", () => {
+    expect(calculateMachineRetrofit({ loadKW: 5, efficiency: 0.9, runtimeHours: 100, targetEfficiency: 0.8 })).toBeNull();
   });
 
   it("extracts only energy-like observations from bill evidence", () => {
