@@ -1,11 +1,10 @@
 /**
  * Broad candidate vocabulary for OVERHAUL's visual inventory pass.
  *
- * The vocabulary intentionally combines common object categories used by
- * public detection datasets with retrofit/HVAC/equipment terminology. The
- * perception model remains open-vocabulary: these are search anchors, not a
- * closed allow-list. A detected object may still be returned when it is not
- * present in this list.
+ * The vocabulary combines common categories represented in public vision
+ * datasets with retrofit/HVAC/industrial terminology. It is intentionally
+ * not a closed allow-list: the perception layer can still return an object
+ * class outside these anchors when visual evidence supports it.
  */
 
 export const COMMON_OBJECT_VOCABULARY = [
@@ -20,11 +19,7 @@ export const RETROFIT_RELEVANT_VOCABULARY = [
   "cracked wall", "water stain", "leak", "condensation", "mold", "corrosion", "rust", "damaged insulation", "missing insulation", "loose insulation", "blocked diffuser", "blocked vent", "dirty filter", "dirty coil", "finned coil", "dust buildup", "damaged duct", "duct gap", "duct leakage indicator", "open panel", "exposed wiring", "damaged cable", "burn mark", "overheated component", "broken fan", "damaged fan blade", "oil stain", "refrigerant line", "frosted coil", "ice buildup", "thermal bridge indicator", "single glazing", "double glazing", "shading device", "external shade", "solar screen"
 ] as const;
 
-export const OVERHAUL_VISION_VOCABULARY = [
-  ...COMMON_OBJECT_VOCABULARY,
-  ...ENGINEERING_OBJECT_VOCABULARY,
-  ...RETROFIT_RELEVANT_VOCABULARY,
-];
+export const OVERHAUL_VISION_VOCABULARY = [...COMMON_OBJECT_VOCABULARY, ...ENGINEERING_OBJECT_VOCABULARY, ...RETROFIT_RELEVANT_VOCABULARY];
 
 export const DATASET_BASIS =
-  "Candidate labels are informed by common public object-detection taxonomies (COCO/LVIS-style coverage) and an OVERHAUL engineering/HVAC extension; the model remains open-vocabulary and may return labels outside the candidate bank.";
+  "Taxonomy anchors are drawn from public scene/object benchmarks: COCO (80 object categories), Open Images V7 (600 boxable classes plus much broader image-level labels), Objects365 (365 categories), ADE20K (fully annotated indoor/outdoor scene imagery), ScanNet (RGB-D indoor scans with 3D poses, reconstructions and instance semantics), and SUN RGB-D (10k+ RGB-D indoor scenes). These datasets are used as vocabulary/benchmark context only; they do not supply measurements for the user's asset. Retrofit/HVAC/industrial labels are an OVERHAUL engineering extension. The detector remains open-vocabulary and evidence-gated.";
