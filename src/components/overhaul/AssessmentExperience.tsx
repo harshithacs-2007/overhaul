@@ -28,17 +28,7 @@ type Assessment = { assessmentSubject?: Scope; siteName?: string | null; assetCl
 type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number; sourceText: string }>; warnings?: string[]; model?: string; sourceKind?: string; sourceName?: string; evidenceType?: string };
 type Values = Record<string, number | string | null>;
 type ClimateContext = {
-  location?: string;
-  latitude?: number;
-  longitude?: number;
-  year?: number;
-  temperature?: number;
-  humidity?: number;
-  min?: number;
-  max?: number;
-  rain?: number;
-  source?: string;
-  fetchedAt?: string;
+  location?: string; latitude?: number; longitude?: number; year?: number; temperature?: number; humidity?: number; min?: number; max?: number; rain?: number; source?: string; fetchedAt?: string;
   hourlySeries?: Array<{ timestamp: string; outdoorTempC: number; solarIrradianceKWhM2: number }>;
 } | null;
 type RoomScan = { scope?: Scope; coveragePercent?: number; completed?: boolean; sectors?: Array<{ id: string; sector: number; result?: { detections?: Array<{ label: string; confidence: number; condition?: string; evidence?: string }> } }> } | null;
@@ -67,28 +57,17 @@ export default function AssessmentExperience() {
       setTwin(sanitizeTwinModel(readJson<unknown>("overhaul:twin-model", null)));
     };
     sync();
-    window.addEventListener("overhaul:supplemental-change", sync);
-    window.addEventListener("overhaul:evidence-change", sync);
-    window.addEventListener("overhaul:climate-change", sync);
-    window.addEventListener("overhaul:twin-change", sync);
-    window.addEventListener("overhaul:scan-fusion-change", sync);
-    window.addEventListener("overhaul:assessment-change", sync);
+    const events = ["overhaul:supplemental-change", "overhaul:evidence-change", "overhaul:climate-change", "overhaul:twin-change", "overhaul:scan-fusion-change", "overhaul:assessment-change"];
+    events.forEach((event) => window.addEventListener(event, sync));
     window.addEventListener("storage", sync);
-    return () => {
-      window.removeEventListener("overhaul:supplemental-change", sync);
-      window.removeEventListener("overhaul:evidence-change", sync);
-      window.removeEventListener("overhaul:climate-change", sync);
-      window.removeEventListener("overhaul:twin-change", sync);
-      window.removeEventListener("overhaul:scan-fusion-change", sync);
-      window.removeEventListener("overhaul:assessment-change", sync);
-      window.removeEventListener("storage", sync);
-    };
+    return () => { events.forEach((event) => window.removeEventListener(event, sync)); window.removeEventListener("storage", sync); };
   }, []);
 
   const values = useMemo<Values>(() => {
     const next: Values = {};
-    for (const extraction of extracts) for (const observation of extraction.observations || []) if (observation.numericValue != null && Number.isFinite(observation.numericValue)) next[canonical(observation.field)] = observation.numericValue;
-    for (const [key, value] of Object.entries(supplemental)) if (next[canonical(key)] == null && typeof value === "number" && Number.isFinite(value)) next[canonical(key)] = value;
+    // Explicit user-supplied anchors win. AI-perceived values only fill holes.
+    for (const [key, value] of Object.entries(supplemental)) if ((typeof value === "number" && Number.isFinite(value)) || typeof value === "string") next[canonical(key)] = value;
+    for (const extraction of extracts) for (const observation of extraction.observations || []) if (next[canonical(observation.field)] == null && observation.numericValue != null && Number.isFinite(observation.numericValue)) next[canonical(observation.field)] = observation.numericValue;
     return next;
   }, [extracts, supplemental]);
 
