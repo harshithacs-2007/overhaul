@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#dfe6e9"/>
+  <rect x="0" y="520" width="1280" height="200" fill="#b2bec3"/>
+  <rect x="90" y="90" width="360" height="190" rx="10" fill="#ffffff" stroke="#2d3436" stroke-width="8"/>
+  <rect x="145" y="140" width="120" height="55" fill="#74b9ff" stroke="#2d3436" stroke-width="5"/>
+  <text x="150" y="230" font-family="Arial" font-size="28" fill="#2d3436">WINDOW</text>
+  <rect x="560" y="105" width="300" height="115" rx="18" fill="#f5f6fa" stroke="#636e72" stroke-width="8"/>
+  <circle cx="710" cy="162" r="34" fill="#dfe6e9" stroke="#636e72" stroke-width="7"/>
+  <text x="610" y="195" font-family="Arial" font-size="28" fill="#2d3436">SPLIT AC</text>
+  <circle cx="1030" cy="455" r="115" fill="#ffffff" stroke="#2d3436" stroke-width="8"/>
+  <path d="M1030 455 L1030 350 M1030 455 L1130 500 M1030 455 L930 500" stroke="#2d3436" stroke-width="15" stroke-linecap="round"/>
+  <circle cx="1030" cy="455" r="20" fill="#636e72"/>
+  <text x="910" y="610" font-family="Arial" font-size="28" fill="#2d3436">CEILING FAN</text>
+  <rect x="105" y="565" width="170" height="82" fill="#ffeaa7" stroke="#2d3436" stroke-width="6"/>
+  <text x="122" y="615" font-family="Arial" font-size="24" fill="#2d3436">TABLE</text>
+  <rect x="720" y="575" width="180" height="70" fill="#81ecec" stroke="#2d3436" stroke-width="6"/>
+  <text x="748" y="620" font-family="Arial" font-size="24" fill="#2d3436">DOOR</text>
+</svg>
