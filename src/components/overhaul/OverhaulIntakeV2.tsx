@@ -54,6 +54,7 @@ const goals: Array<[Goal, string, string]> = [
   ["comfort", "Comfort", "Connect thermal conditions to physical interventions."],
   ["reliability", "Reliability", "Find maintenance and replacement pathways."],
 ];
+const numericDetailKeys = new Set(["floor_area_m2", "geometry_height_m", "electricity_rate_inr_per_kwh", "capacity_kw", "load_kw", "power_kw", "annual_hours", "bill_history_months", "bill_energy_kwh"]);
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 function evidenceKind(file: File): EvidenceKind {
@@ -162,12 +163,21 @@ export default function OverhaulIntakeV2() {
     if (!canEvidence || running) return;
     setRunning(true);
     setProgress(0);
+    setModelError(null);
     try {
+      const invalidAge = age.trim() && (!Number.isFinite(Number(age)) || Number(age) < 0);
+      const invalidDetails = Object.entries(details).some(([key, value]) => numericDetailKeys.has(key) && value.trim() && (!Number.isFinite(Number(value)) || Number(value) < 0));
+      if (invalidAge || invalidDetails) {
+        setModelError("One or more numeric inputs are invalid. Enter non-negative finite values before continuing.");
+        return;
+      }
+
       const extractionResult = files.length ? await extractEvidence(files, scope, industry, setProgress) : { results: [], failures: [] };
-      const numeric = Object.fromEntries(Object.entries(details).filter(([, value]) => value.trim()).map(([key, value]) => { const parsed = Number(value); return [key, Number.isFinite(parsed) ? parsed : value]; }));
+      const numeric = Object.fromEntries(Object.entries(details).filter(([, value]) => value.trim()).map(([key, value]) => [key, Number(value)]));
       const previous = readSession<Record<string, unknown>>("overhaul:supplemental-values", {});
       const supplemental = { ...previous, ...numeric } as Record<string, number | string>;
       saveSession("overhaul:supplemental-values", supplemental);
+      saveSession("overhaul:evidence-extraction-failures", extractionResult.failures);
 
       let twin = readSession<TwinModel | null>("overhaul:twin-model", null);
       const fusion = readSession<unknown>("overhaul:scan-fusion", null);
@@ -191,7 +201,7 @@ export default function OverhaulIntakeV2() {
         createdAt: new Date().toISOString(),
         evidence: files.map(({ file: _file, previewUrl: _preview, ...meta }) => meta),
         context: { industry, siteName: siteName.trim() || null, assetClass: assetClass.trim(), mode, scope },
-        status: "model-ready" as const,
+        status: twin ? "model-ready" : "evidence-ready",
         twinStatus: twin ? "generated" : "pending",
       };
       saveSession("overhaul:evidence-extractions", extractionResult.results);
