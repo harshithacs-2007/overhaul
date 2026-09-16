@@ -41,6 +41,13 @@ export default function RoomScanCamera() {
   const captured = useMemo(() => new Set(sectors.map((item) => item.sector)), [sectors]);
   const progress = Math.round((captured.size / SECTORS) * 100);
 
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setRunning(false);
+  };
+
   useEffect(() => {
     try {
       const assessment = JSON.parse(sessionStorage.getItem("overhaul:assessment") || "null") as { assessmentSubject?: Scope } | null;
@@ -65,13 +72,6 @@ export default function RoomScanCamera() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Camera access was denied or unavailable.");
     }
-  };
-
-  const stopCamera = () => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setRunning(false);
   };
 
   const capture = async () => {
