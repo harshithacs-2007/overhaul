@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/immutability -- this component owns an imperative Three.js lifecycle and cleans up mutable animation state inside the effect. */
 
 import { useEffect, useMemo, useRef } from "react";
-import type { Material, Mesh, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
+import type { BufferGeometry, Group, Material, Mesh, Object3D, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
 import type { TwinModel } from "@/lib/engineering/twinModel";
 
 type Scope = "building" | "facility" | "equipment";
@@ -30,7 +30,7 @@ export default function Twin3DCanvas({ model, title }: Props) {
       scene.add(new THREE.HemisphereLight(0xd7fff8, 0x0a1111, 1.8)); const key = new THREE.DirectionalLight(0xffffff, 2.6); key.position.set(12, 18, 10); key.castShadow = true; scene.add(key); const rim = new THREE.PointLight(0x24dfca, 10, 60); rim.position.set(-10, 8, -12); scene.add(rim); scene.add(new THREE.GridHelper(Math.max(twin.overall.widthM, twin.overall.depthM) * 3, 60, 0x164b46, 0x0b2523));
       const root = new THREE.Group(); scene.add(root);
       const materials = { wall: new THREE.MeshStandardMaterial({ color: 0x164b46, metalness: .55, roughness: .38, transparent: true, opacity: .86 }), floor: new THREE.MeshStandardMaterial({ color: 0x103a36, metalness: .28, roughness: .7, transparent: true, opacity: .5 }), asset: new THREE.MeshStandardMaterial({ color: 0xe4b860, metalness: .55, roughness: .3 }), inferred: new THREE.MeshStandardMaterial({ color: 0x5d7773, metalness: .2, roughness: .8, transparent: true, opacity: .28 }), retrofit: new THREE.MeshStandardMaterial({ color: 0x9b7cff, metalness: .48, roughness: .3, emissive: 0x2a174e, emissiveIntensity: .6 }), wire: new THREE.MeshBasicMaterial({ color: 0x2ce0ca, wireframe: true, transparent: true, opacity: .35 }), retrofitWire: new THREE.MeshBasicMaterial({ color: 0x9b7cff, wireframe: true, transparent: true, opacity: .82 }), opening: new THREE.MeshBasicMaterial({ color: 0xe4b860 }), dark: new THREE.MeshStandardMaterial({ color: 0x071312, metalness: .7, roughness: .28 }), glow: new THREE.MeshBasicMaterial({ color: 0x2ce0ca }) } as const;
-      const addMesh = (geometry: THREE.BufferGeometry, material: Material, group: THREE.Group, y = 0) => { const mesh = new THREE.Mesh(geometry, material); mesh.position.y = y; mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); return mesh; };
+      const addMesh = (geometry: BufferGeometry, material: Material, group: Group, y = 0) => { const mesh = new THREE.Mesh(geometry, material); mesh.position.y = y; mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); return mesh; };
       const box = (w: number, h: number, d: number, material: Material, x: number, y: number, z: number, parent = root) => { const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material); mesh.position.set(x, y + h / 2, z); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh; };
 
       for (const room of twin.rooms) { box(room.widthM, .03, room.depthM, materials.floor, room.x + room.widthM / 2, 0, room.y + room.depthM / 2); const roof = box(room.widthM, .015, room.depthM, materials.wire, room.x + room.widthM / 2, room.heightM, room.y + room.depthM / 2); roof.userData.type = "room-roof"; }
