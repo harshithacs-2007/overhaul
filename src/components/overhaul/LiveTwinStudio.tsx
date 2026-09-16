@@ -8,73 +8,51 @@ import { simulateBuildingHourly, type ClimateHour } from "@/lib/engineering/hour
 type Scope = "building" | "facility" | "equipment";
 type Values = Record<string, number | string | null | undefined>;
 type StoredClimate = { year?: number; source?: string; hourlySeries?: ClimateHour[] };
-type Impact = { current: { load: number; power: number; energy: number; utilization: number; cost: number }; proposed: { load: number; power: number; energy: number; utilization: number; cost: number }; savingPercent: number; deltaPower: number; deltaLoad: number; overCapacityHours?: number; datasetHours?: number; basis: string };
+type Impact = { current: { load: number; power: number; energy: number; utilization: number; cost: number }; proposed: { load: number; power: number; energy: number; utilization: number; cost: number }; savingPercent: number; deltaPower: number; deltaLoad: number; overCapacityHours?: number; datasetHours?: number; sensibleEnergy?: number; latentEnergy?: number; basis: string };
 
 function n(values: Values, ...keys: string[]) { for (const key of keys) { const value = Number(values[key]); if (Number.isFinite(value) && value > 0) return value; } return null; }
 function zeroOrPositive(values: Values, ...keys: string[]) { for (const key of keys) { const value = Number(values[key]); if (Number.isFinite(value) && value >= 0) return value; } return null; }
+function boundedPercent(values: Values, key: string) { const value = Number(values[key]); return Number.isFinite(value) && value >= 0 && value <= 100 ? value : null; }
 function fmt(value: number | null) { return value == null ? "—" : value.toLocaleString("en-IN", { maximumFractionDigits: 1 }); }
 
 function buildingImpact(values: Values, climate: ClimateHour[] | null): Impact | null {
-  const envelopeU = n(values, "envelope_u_w_m2k");
-  const envelopeArea = n(values, "envelope_area_m2");
-  const ventilation = zeroOrPositive(values, "ventilation_m3s");
-  const infiltration = zeroOrPositive(values, "infiltration_m3s");
-  const indoor = Number(values.indoor_temp_c);
-  const capacity = n(values, "hvac_capacity_kw", "capacity_kw");
-  const cop = n(values, "cop", "hvac_cop");
-  const internal = zeroOrPositive(values, "internal_gain_kw");
-  const solarFactor = zeroOrPositive(values, "solar_gain_factor");
-  const tariff = zeroOrPositive(values, "electricity_rate_inr_per_kwh");
-  if (envelopeU == null || envelopeArea == null || ventilation == null || infiltration == null || !Number.isFinite(indoor) || capacity == null || cop == null || internal == null || solarFactor == null || tariff == null || !climate?.length) return null;
-
-  const baseline = simulateBuildingHourly({ envelopeU_W_m2K: envelopeU, envelopeAreaM2: envelopeArea, ventilationM3s: ventilation, infiltrationM3s: infiltration, indoorTempC: indoor, hvacCapacityKW: capacity, hvacCOP: cop, internalGainKW: internal, solarGainFactorM2: solarFactor, tariffINRPerKWh: tariff, climate });
-  const proposedR = n(values, "proposed_r_value_m2k_w");
-  const proposedCop = n(values, "proposed_cop");
-  const proposed = simulateBuildingHourly({ envelopeU_W_m2K: proposedR != null ? 1 / proposedR : envelopeU, envelopeAreaM2: envelopeArea, ventilationM3s: ventilation, infiltrationM3s: infiltration, indoorTempC: indoor, hvacCapacityKW: capacity, hvacCOP: proposedCop ?? cop, internalGainKW: internal, solarGainFactorM2: solarFactor, tariffINRPerKWh: tariff, climate });
+  const envelopeU = n(values, "envelope_u_w_m2k"); const envelopeArea = n(values, "envelope_area_m2");
+  const ventilation = zeroOrPositive(values, "ventilation_m3s"); const infiltration = zeroOrPositive(values, "infiltration_m3s");
+  const indoor = Number(values.indoor_temp_c); const indoorRH = boundedPercent(values, "indoor_rh_pct"); const capacity = n(values, "hvac_capacity_kw", "capacity_kw"); const cop = n(values, "cop", "hvac_cop");
+  const internal = zeroOrPositive(values, "internal_gain_kw"); const solarFactor = zeroOrPositive(values, "solar_gain_factor"); const tariff = zeroOrPositive(values, "electricity_rate_inr_per_kwh");
+  if (envelopeU == null || envelopeArea == null || ventilation == null || infiltration == null || !Number.isFinite(indoor) || indoorRH == null || capacity == null || cop == null || internal == null || solarFactor == null || tariff == null || !climate?.length) return null;
+  const baseline = simulateBuildingHourly({ envelopeU_W_m2K: envelopeU, envelopeAreaM2: envelopeArea, ventilationM3s: ventilation, infiltrationM3s: infiltration, indoorTempC: indoor, indoorRHPercent: indoorRH, hvacCapacityKW: capacity, hvacCOP: cop, internalGainKW: internal, solarGainFactorM2: solarFactor, tariffINRPerKWh: tariff, climate });
+  const proposedR = n(values, "proposed_r_value_m2k_w"); const proposedCop = n(values, "proposed_cop");
+  const proposed = simulateBuildingHourly({ envelopeU_W_m2K: proposedR != null ? 1 / proposedR : envelopeU, envelopeAreaM2: envelopeArea, ventilationM3s: ventilation, infiltrationM3s: infiltration, indoorTempC: indoor, indoorRHPercent: indoorRH, hvacCapacityKW: capacity, hvacCOP: proposedCop ?? cop, internalGainKW: internal, solarGainFactorM2: solarFactor, tariffINRPerKWh: tariff, climate });
   const deltaEnergy = proposed.annualCoolingEnergyKWh - baseline.annualCoolingEnergyKWh;
-  return { current: { load: baseline.peakThermalLoadKW, power: baseline.peakElectricalPowerKW, energy: baseline.annualCoolingEnergyKWh, utilization: baseline.peakThermalLoadKW / capacity, cost: baseline.annualCostINR }, proposed: { load: proposed.peakThermalLoadKW, power: proposed.peakElectricalPowerKW, energy: proposed.annualCoolingEnergyKWh, utilization: proposed.peakThermalLoadKW / capacity, cost: proposed.annualCostINR }, savingPercent: baseline.annualCoolingEnergyKWh > 0 ? -deltaEnergy / baseline.annualCoolingEnergyKWh * 100 : 0, deltaPower: proposed.peakElectricalPowerKW - baseline.peakElectricalPowerKW, deltaLoad: proposed.peakThermalLoadKW - baseline.peakThermalLoadKW, overCapacityHours: proposed.hoursOverCapacity, datasetHours: proposed.datasetHours, basis: `NASA POWER ${climate.length.toLocaleString()} hourly boundary + explicit envelope/air/HVAC inputs` };
+  return { current: { load: baseline.peakThermalLoadKW, power: baseline.peakElectricalPowerKW, energy: baseline.annualCoolingEnergyKWh, utilization: baseline.peakThermalLoadKW / capacity, cost: baseline.annualCostINR }, proposed: { load: proposed.peakThermalLoadKW, power: proposed.peakElectricalPowerKW, energy: proposed.annualCoolingEnergyKWh, utilization: proposed.peakThermalLoadKW / capacity, cost: proposed.annualCostINR }, savingPercent: baseline.annualCoolingEnergyKWh > 0 ? -deltaEnergy / baseline.annualCoolingEnergyKWh * 100 : 0, deltaPower: proposed.peakElectricalPowerKW - baseline.peakElectricalPowerKW, deltaLoad: proposed.peakThermalLoadKW - baseline.peakThermalLoadKW, overCapacityHours: proposed.hoursOverCapacity, datasetHours: proposed.datasetHours, sensibleEnergy: proposed.sensibleCoolingEnergyKWh, latentEnergy: proposed.latentCoolingEnergyKWh, basis: `NASA POWER ${climate.length.toLocaleString()} hourly boundary (T/RH/pressure/solar) + explicit envelope/air/HVAC inputs` };
 }
 
 function equipmentImpact(values: Values): Impact | null {
-  const capacity = n(values, "capacity_kw");
-  const hours = n(values, "annual_hours", "runtime_hours", "annual_runtime_hours");
-  const tariff = zeroOrPositive(values, "electricity_rate_inr_per_kwh");
+  const capacity = n(values, "capacity_kw"); const hours = n(values, "annual_hours", "runtime_hours", "annual_runtime_hours"); const tariff = zeroOrPositive(values, "electricity_rate_inr_per_kwh");
   if (capacity == null || hours == null || tariff == null) return null;
-  const load = zeroOrPositive(values, "load_kw");
-  const observedPower = zeroOrPositive(values, "power_kw");
-  const efficiency = n(values, "efficiency");
+  const load = zeroOrPositive(values, "load_kw"); const observedPower = zeroOrPositive(values, "power_kw");
   if (load == null || observedPower == null) return null;
-  const currentEnergy = observedPower * hours;
-  let proposedPower = observedPower;
-  let proposedEnergy = currentEnergy;
-  const targetEfficiency = n(values, "proposed_efficiency");
-  if (targetEfficiency != null && (efficiency != null || observedPower > 0)) proposedPower = load / targetEfficiency;
-  const targetHours = n(values, "proposed_runtime_hours");
-  if (targetHours != null) proposedEnergy = proposedPower * targetHours; else proposedEnergy = proposedPower * hours;
+  const currentEnergy = observedPower * hours; let proposedPower = observedPower; let proposedEnergy = currentEnergy;
+  const targetEfficiency = n(values, "proposed_efficiency"); if (targetEfficiency != null) proposedPower = load / targetEfficiency;
+  const targetHours = n(values, "proposed_runtime_hours"); proposedEnergy = proposedPower * (targetHours ?? hours);
   const annualSaving = currentEnergy - proposedEnergy;
   return { current: { load, power: observedPower, energy: currentEnergy, utilization: load / capacity, cost: currentEnergy * tariff }, proposed: { load, power: proposedPower, energy: proposedEnergy, utilization: load / capacity, cost: proposedEnergy * tariff }, savingPercent: currentEnergy > 0 ? annualSaving / currentEnergy * 100 : 0, deltaPower: proposedPower - observedPower, deltaLoad: 0, basis: "Observed electrical power + explicit load/runtime; optional counterfactual efficiency/runtime is explicit." };
 }
 
 export default function LiveTwinStudio({ scope, title, values, twin, climate }: { scope: Scope; title: string; values: Values; twin?: TwinModel | null; climate?: StoredClimate | null }) {
-  const [mode, setMode] = useState<"observed" | "retrofit">("observed");
-  const [climateStore, setClimateStore] = useState<StoredClimate | null>(climate || null);
+  const [mode, setMode] = useState<"observed" | "retrofit">("observed"); const [climateStore, setClimateStore] = useState<StoredClimate | null>(climate || null);
   useEffect(() => { const sync = () => { try { setClimateStore(JSON.parse(sessionStorage.getItem("overhaul:climate-context") || "null")); } catch { setClimateStore(null); } }; sync(); window.addEventListener("overhaul:climate-change", sync); window.addEventListener("overhaul:supplemental-change", sync); return () => { window.removeEventListener("overhaul:climate-change", sync); window.removeEventListener("overhaul:supplemental-change", sync); }; }, []);
-
-  const impact = scope === "equipment" ? equipmentImpact(values) : buildingImpact(values, climateStore?.hourlySeries || null);
-  const displayed = impact ? (mode === "retrofit" ? impact.proposed : impact.current) : null;
-  const width = n(values, "geometry_width_m", "width_m") ?? twin?.overall.widthM ?? null;
-  const depth = n(values, "geometry_depth_m", "depth_m") ?? twin?.overall.depthM ?? null;
-  const height = n(values, "geometry_height_m", "height_m") ?? twin?.overall.heightM ?? null;
-  const hasRetrofit = Boolean(impact && (impact.proposed.power !== impact.current.power || impact.proposed.energy !== impact.current.energy || impact.proposed.load !== impact.current.load));
-  const detectedCount = twin?.assets.length ?? 0;
-
+  const impact = scope === "equipment" ? equipmentImpact(values) : buildingImpact(values, climateStore?.hourlySeries || null); const displayed = impact ? (mode === "retrofit" ? impact.proposed : impact.current) : null;
+  const width = n(values, "geometry_width_m", "width_m") ?? twin?.overall.widthM ?? null; const depth = n(values, "geometry_depth_m", "depth_m") ?? twin?.overall.depthM ?? null; const height = n(values, "geometry_height_m", "height_m") ?? twin?.overall.heightM ?? null;
+  const hasRetrofit = Boolean(impact && (impact.proposed.power !== impact.current.power || impact.proposed.energy !== impact.current.energy || impact.proposed.load !== impact.current.load)); const detectedCount = twin?.assets.length ?? 0;
   return <section className="overflow-hidden border border-teal/20 bg-[#060a0a] shadow-[0_28px_110px_rgba(0,0,0,.24)]">
-    <div className="flex flex-wrap items-end justify-between gap-4 border-b border-steel/10 px-5 py-5"><div><p className="font-mono text-[8px] uppercase tracking-[.18em] text-teal">Digital twin · live viewport</p><h2 className="mt-1 font-display text-3xl">Reality → model → intervention.</h2><p className="mt-1 max-w-3xl text-[10px] leading-5 text-steel">The viewport renders the generated twin. Decision metrics are calculated independently from explicit engineering anchors and, for buildings, a full-year NASA POWER hourly boundary.</p></div><div className="flex border border-steel/15 bg-black/25 p-1">{([["observed", "Observed"], ["retrofit", "What-if"]] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setMode(value)} disabled={value === "retrofit" && !hasRetrofit} className={`px-3 py-2 font-mono text-[8px] uppercase ${mode === value ? "bg-teal text-navy" : "text-steel disabled:opacity-30"}`}>{label}</button>)}</div></div>
+    <div className="flex flex-wrap items-end justify-between gap-4 border-b border-steel/10 px-5 py-5"><div><p className="font-mono text-[8px] uppercase tracking-[.18em] text-teal">Digital twin · live viewport</p><h2 className="mt-1 font-display text-3xl">Reality → model → intervention.</h2><p className="mt-1 max-w-3xl text-[10px] leading-5 text-steel">The viewport renders the generated twin. Decision metrics are calculated independently from explicit engineering anchors and a complete NASA POWER hourly boundary.</p></div><div className="flex border border-steel/15 bg-black/25 p-1">{([["observed", "Observed"], ["retrofit", "What-if"]] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setMode(value)} disabled={value === "retrofit" && !hasRetrofit} className={`px-3 py-2 font-mono text-[8px] uppercase ${mode === value ? "bg-teal text-navy" : "text-steel disabled:opacity-30"}`}>{label}</button>)}</div></div>
     <div className="grid xl:grid-cols-[1.32fr_.68fr]"><div className="relative min-h-[600px] border-b border-steel/10 xl:border-b-0 xl:border-r"><Twin3DCanvas scope={scope} mode={mode} model={twin ?? null} widthM={width} depthM={depth} heightM={height} capacityKW={n(values, "capacity_kw", "hvac_capacity_kw")} loadKW={displayed?.load ?? n(values, "load_kw")} powerKW={displayed?.power ?? n(values, "power_kw")} currentLoadKW={impact?.current.load ?? null} proposedLoadKW={impact?.proposed.load ?? null} currentPowerKW={impact?.current.power ?? null} proposedPowerKW={impact?.proposed.power ?? null} currentUtilization={impact?.current.utilization ?? null} proposedUtilization={impact?.proposed.utilization ?? null} savingPercent={impact?.savingPercent ?? null} title={title}/><div className="pointer-events-none absolute left-5 top-5 border border-steel/15 bg-black/60 px-3 py-2 backdrop-blur"><p className="font-mono text-[7px] uppercase text-steel">Scene source</p><p className="mt-1 font-mono text-[9px] uppercase text-teal">{twin ? `${twin.geometryStatus} · ${twin.units}` : "blocked"}</p></div><div className="pointer-events-none absolute right-5 top-5 border border-steel/15 bg-black/60 px-3 py-2 text-right backdrop-blur"><p className="font-mono text-[7px] uppercase text-steel">Assets in model</p><p className="mt-1 font-mono text-[9px] text-paper">{detectedCount}</p></div></div>
       <aside className="p-5"><div className="grid grid-cols-2 gap-2"><State label="Geometry" value={twin ? `${twin.geometryStatus} · ${twin.units}` : "Blocked"} good={Boolean(twin)}/><State label="Climate" value={climateStore?.hourlySeries?.length ? `${climateStore.year} · ${climateStore.hourlySeries.length.toLocaleString()} h` : "Waiting"} good={Boolean(climateStore?.hourlySeries?.length)}/><State label="Physics" value={displayed ? "Live" : "Blocked"} good={Boolean(displayed)}/><State label="What-if" value={hasRetrofit ? "Ready" : "Needs intervention"} good={hasRetrofit}/></div>
-        <Panel title="Causal telemetry" accent={Boolean(impact)}>{displayed ? <div className="grid grid-cols-2 gap-2"><Metric label="Peak load" value={`${fmt(displayed.load)} kW`}/><Metric label="Peak power" value={`${fmt(displayed.power)} kW`}/><Metric label="Utilization" value={`${fmt(displayed.utilization * 100)}%`}/><Metric label="Annual energy" value={`${fmt(displayed.energy)} kWh`}/><Metric label="Annual cost" value={`₹${fmt(displayed.cost)}`}/>{impact?.overCapacityHours != null ? <Metric label="Hours > capacity" value={`${impact.overCapacityHours} h`} /> : null}</div> : <p className="text-[9px] leading-5 text-steel">Calculation is blocked until the required physical anchors and dataset boundary are present.</p>}{impact ? <p className="mt-3 border-t border-steel/10 pt-3 text-[8px] leading-4 text-steel">Basis: {impact.basis}</p> : null}</Panel>
+        <Panel title="Causal telemetry" accent={Boolean(impact)}>{displayed ? <div className="grid grid-cols-2 gap-2"><Metric label="Peak load" value={`${fmt(displayed.load)} kW`}/><Metric label="Peak power" value={`${fmt(displayed.power)} kW`}/><Metric label="Utilization" value={`${fmt(displayed.utilization * 100)}%`}/><Metric label="Annual energy" value={`${fmt(displayed.energy)} kWh`}/><Metric label="Annual cost" value={`₹${fmt(displayed.cost)}`}/>{impact?.overCapacityHours != null ? <Metric label="Hours > capacity" value={`${impact.overCapacityHours} h`} /> : null}{impact?.sensibleEnergy != null ? <Metric label="Sensible load" value={`${fmt(impact.sensibleEnergy)} kWh`} /> : null}{impact?.latentEnergy != null ? <Metric label="Latent load" value={`${fmt(impact.latentEnergy)} kWh`} /> : null}</div> : <p className="text-[9px] leading-5 text-steel">Calculation is blocked until the required physical anchors and dataset boundary are present.</p>}{impact ? <p className="mt-3 border-t border-steel/10 pt-3 text-[8px] leading-4 text-steel">Basis: {impact.basis}</p> : null}</Panel>
         <Panel title="Generated scene"><div className="space-y-2 text-[9px] text-steel"><p><span className="text-paper">Rooms:</span> {twin?.rooms.length ?? 0}</p><p><span className="text-paper">Walls:</span> {twin?.walls.length ?? 0}</p><p><span className="text-paper">Openings:</span> {twin?.openings.length ?? 0}</p><p><span className="text-paper">Equipment:</span> {twin?.assets.length ?? 0}</p><p><span className="text-paper">Geometry:</span> {twin ? `${twin.geometryStatus} / ${twin.units}` : "—"}</p><p><span className="text-paper">Confidence:</span> {twin ? `${Math.round(twin.confidence * 100)}%` : "—"}</p></div></Panel>
-        <Panel title="Integrity"><p className="text-[9px] leading-5 text-steel">Visual recognition is not treated as proof of dimensions, efficiency, failure, or energy loss. Geometry is either explicitly metric or visibly non-metric. Physics only consumes evidence-gated values.</p></Panel>
+        <Panel title="Integrity"><p className="text-[9px] leading-5 text-steel">Visual recognition is not treated as proof of dimensions, efficiency, or energy loss. Metric geometry is only accepted from explicit scale evidence. Annual building cooling is blocked without the complete climate boundary and explicit envelope/HVAC/moisture inputs.</p></Panel>
       </aside></div>
   </section>;
 }
