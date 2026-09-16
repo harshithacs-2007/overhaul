@@ -110,7 +110,7 @@ function mergeDetections(inventory: Detection[], engineering: Detection[]) {
   for (const raw of [...inventory, ...engineering]) {
     if (!validBox(raw.box)) continue;
     const item = { ...raw, label: canonicalizeLabel(raw.label), confidence: Math.max(0, Math.min(1, raw.confidence)), passes: 1 };
-    let match = merged.find((candidate) => norm(candidate.label) === norm(item.label) && iou(candidate.box, item.box) >= 0.25);
+    const match = merged.find((candidate) => norm(candidate.label) === norm(item.label) && iou(candidate.box, item.box) >= 0.25);
     if (!match) { merged.push(item); continue; }
     const best = match.confidence >= item.confidence ? match : item;
     match.label = best.label;
