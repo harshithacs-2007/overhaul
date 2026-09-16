@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { TwinModel } from "@/lib/engineering/twinModel";
 
 type Scope = "building" | "facility" | "equipment";
 type Values = Record<string, number | string | null>;
