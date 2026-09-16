@@ -36,6 +36,7 @@ export type RetrofitWhatIf = {
 };
 
 const finitePositive = (value: number | null | undefined) => Number.isFinite(value) && (value as number) > 0 ? value as number : null;
+const validEfficiency = (value: number | null) => value != null && value <= 1;
 
 export function calculateMachineBaseline(input: MachineBaselineInput): MachineCalculation {
   const loadKW = finitePositive(input.loadKW);
@@ -51,12 +52,15 @@ export function calculateMachineBaseline(input: MachineBaselineInput): MachineCa
   const gaps: string[] = [];
   const basis: string[] = [];
   const duty = loadKW ?? ratedCapacityKW;
+  if (loadKW != null && ratedCapacityKW != null && loadKW > ratedCapacityKW) gaps.push("Observed duty exceeds the supplied rated capacity; verify the duty, rating and units before treating utilisation as valid.");
+  if (efficiency != null && !validEfficiency(efficiency)) gaps.push("Efficiency must be greater than 0 and no greater than 1 for this calculation path.");
+  if (runtimeHours != null && runtimeHours > 8760) gaps.push("Annual runtime exceeds 8,760 h/yr; verify the period and units.");
 
   let calculatedPowerKW: number | null = null;
   if (duty != null && cop != null) {
     calculatedPowerKW = duty / cop;
     basis.push("cooling/heating duty ÷ COP");
-  } else if (duty != null && efficiency != null) {
+  } else if (duty != null && efficiency != null && validEfficiency(efficiency)) {
     calculatedPowerKW = duty / efficiency;
     basis.push("mechanical/thermal duty ÷ efficiency");
   }
@@ -92,10 +96,14 @@ export function calculateMachineRetrofit(input: MachineBaselineInput & { targetE
 
   if (loadKW == null) return null;
   if (targetEfficiency == null && targetCOP == null && targetRuntimeHours == null) return null;
-  if (targetEfficiency != null && efficiency == null && targetCOP == null) return null;
-  if (targetCOP != null && cop == null && targetEfficiency == null) return null;
+  if (targetEfficiency != null && (!validEfficiency(targetEfficiency) || (efficiency == null && targetCOP == null))) return null;
+  if (targetCOP != null && (cop == null && targetEfficiency == null)) return null;
+  if (targetRuntimeHours != null && targetRuntimeHours > 8760) return null;
+  if (runtime != null && runtime > 8760) return null;
+  if (input.loadKW != null && input.ratedCapacityKW != null && input.loadKW > input.ratedCapacityKW) return null;
+  if (targetEfficiency != null && targetEfficiency <= (efficiency ?? 0) && targetCOP == null && targetRuntimeHours == null) return null;
 
-  const baselineCalculated = baselinePower ?? (cop != null ? loadKW / cop : efficiency != null ? loadKW / efficiency : null);
+  const baselineCalculated = baselinePower ?? (cop != null ? loadKW / cop : efficiency != null && validEfficiency(efficiency) ? loadKW / efficiency : null);
   if (baselineCalculated == null) return null;
 
   const targetPower = targetCOP != null ? loadKW / targetCOP : targetEfficiency != null ? loadKW / targetEfficiency : baselineCalculated;
