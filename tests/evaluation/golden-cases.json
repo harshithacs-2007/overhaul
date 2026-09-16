@@ -1,5 +1,5 @@
 {
-  "version": "1.1",
+  "version": "1.2",
   "purpose": "Controlled regression and demo fixtures for OVERHAUL. These cases are ground truth references, not claims about real-world model accuracy.",
   "cases": [
     {
@@ -59,6 +59,33 @@
         "retrofitAnnualEnergyKWh": 120000,
         "annualEnergySavingKWh": 30000,
         "annualCostSavingINR": 300000
+      }
+    },
+    {
+      "id": "chiller-plant-01",
+      "scope": "facility",
+      "assetClass": "chiller plant",
+      "image": "../fixtures/chiller-plant-ground-truth.svg",
+      "expectedDetections": ["chiller", "pump", "variable frequency drive"],
+      "groundTruthBoxes": {
+        "chiller": {"x": 0.09375, "y": 0.2638889, "width": 0.296875, "height": 0.3055556},
+        "pump": {"x": 0.5078125, "y": 0.1805556, "width": 0.109375, "height": 0.375},
+        "variable frequency drive": {"x": 0.6953125, "y": 0.25, "width": 0.140625, "height": 0.25}
+      },
+      "metrics": {
+        "floor_area_m2": 500,
+        "envelope_ua_w_per_k": 220,
+        "outdoor_temp_c": 36,
+        "indoor_temp_c": 25,
+        "capacity_kw": 420,
+        "cop": 3.8,
+        "annual_cooling_hours": 3500,
+        "electricity_rate_inr_per_kwh": 9.5
+      },
+      "expectedPhysics": {
+        "baselineThermalLoadKW": 15.476,
+        "baselineElectricalPowerKW": 4.0726,
+        "baselineAnnualEnergyKWh": 14254.2
       }
     }
   ],
