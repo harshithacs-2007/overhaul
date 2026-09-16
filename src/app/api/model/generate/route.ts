@@ -4,7 +4,7 @@ import { sanitizeTwinModel, type TwinModel } from "@/lib/engineering/twinModel";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_FILES = 6;
+const MAX_FILES = 12;
 const MAX_BYTES = 12 * 1024 * 1024;
 const MODEL = process.env.NEBIUS_TWIN_MODEL || process.env.NEBIUS_VISION_MODEL || "nvidia/nemotron-3-nano-omni";
 const BASE_URL = (process.env.NEBIUS_BASE_URL || "https://api.tokenfactory.us-central1.nebius.com/v1").replace(/\/$/, "");
@@ -29,49 +29,41 @@ const schema = {
 };
 
 function numberFrom(values: Record<string, unknown>, ...keys: string[]) {
-  for (const key of keys) {
-    const value = Number(values[key]);
-    if (Number.isFinite(value) && value > 0) return value;
-  }
+  for (const key of keys) { const value = Number(values[key]); if (Number.isFinite(value) && value > 0) return value; }
   return null;
 }
 
 function parametricTwin(scope: "building" | "facility" | "equipment", className: string, title: string, values: Record<string, unknown>): TwinModel | null {
-  const width = numberFrom(values, "geometry_width_m", "width_m");
-  const depth = numberFrom(values, "geometry_depth_m", "depth_m");
-  const height = numberFrom(values, "geometry_height_m", "height_m");
+  const width = numberFrom(values, "geometry_width_m", "width_m"); const depth = numberFrom(values, "geometry_depth_m", "depth_m"); const height = numberFrom(values, "geometry_height_m", "height_m");
   if (width == null || depth == null || height == null) return null;
-  if (scope === "equipment") {
-    return sanitizeTwinModel({ schemaVersion: "overhaul.twin.v2", scope, title, className, generatedAt: new Date().toISOString(), geometryBasis: "parametric", geometryStatus: "verified-metric", units: "m", overall: { widthM: width, depthM: depth, heightM: height }, rooms: [], walls: [], openings: [], assets: [{ id: "primary-asset", label: className, className, x: 0, y: 0, widthM: width, depthM: depth, heightM: height, rotationDeg: 0, source: "user", confidence: 1 }], sourceEvidenceIds: [], confidence: 1, warnings: ["Parametric equipment geometry is based only on explicitly supplied dimensions."], nextEvidence: ["Manufacturer dimensional drawing or nameplate dimensions"] });
-  }
+  if (scope === "equipment") return sanitizeTwinModel({ schemaVersion: "overhaul.twin.v2", scope, title, className, generatedAt: new Date().toISOString(), geometryBasis: "parametric", geometryStatus: "verified-metric", units: "m", overall: { widthM: width, depthM: depth, heightM: height }, rooms: [], walls: [], openings: [], assets: [{ id: "primary-asset", label: className, className, x: 0, y: 0, widthM: width, depthM: depth, heightM: height, rotationDeg: 0, source: "user", confidence: 1 }], sourceEvidenceIds: [], confidence: 1, warnings: ["Parametric equipment geometry is based only on explicitly supplied dimensions."], nextEvidence: ["Manufacturer dimensional drawing or nameplate dimensions"] });
   return sanitizeTwinModel({ schemaVersion: "overhaul.twin.v2", scope, title, className, generatedAt: new Date().toISOString(), geometryBasis: "parametric", geometryStatus: "verified-metric", units: "m", overall: { widthM: width, depthM: depth, heightM: height }, rooms: [{ id: "primary-space", name: "Conditioned envelope", x: 0, y: 0, widthM: width, depthM: depth, heightM: height, source: "user", confidence: 1 }], walls: [{ id: "wall-n", a: { x: 0, y: 0 }, b: { x: width, y: 0 }, thicknessM: 0.01, heightM: height, source: "user", confidence: 1 }, { id: "wall-e", a: { x: width, y: 0 }, b: { x: width, y: depth }, thicknessM: 0.01, heightM: height, source: "user", confidence: 1 }, { id: "wall-s", a: { x: width, y: depth }, b: { x: 0, y: depth }, thicknessM: 0.01, heightM: height, source: "user", confidence: 1 }, { id: "wall-w", a: { x: 0, y: depth }, b: { x: 0, y: 0 }, thicknessM: 0.01, heightM: height, source: "user", confidence: 1 }], openings: [], assets: [], sourceEvidenceIds: [], confidence: 1, warnings: ["Parametric building geometry is based only on explicitly supplied dimensions; no visual dimensions were inferred."], nextEvidence: ["Dimensioned floor plan"] });
 }
 
-function prompt(input: { scope: string; className: string; industry: string; title: string; extracted: unknown[] }) {
-  return `You are OVERHAUL's asset reconstruction engine. Build an editable geometric model from evidence for retrofit engineering.
+function prompt(input: { scope: string; className: string; industry: string; title: string; extracted: unknown[]; imageCount: number }) {
+  return `You are OVERHAUL's multi-view asset reconstruction engine. Build one consistent editable geometric twin from ${input.imageCount} visual views plus extracted evidence.
 
 Scope: ${input.scope}. Asset class: ${input.className}. Industry: ${input.industry}. Title: ${input.title}.
 
-Hard integrity rules:
-1. Never invent metric dimensions. If a number is not explicitly visible in a dimensioned drawing, nameplate, or user-entered field, it cannot be expressed as metres.
-2. A clear but undimensioned plan may be represented proportionally with units='scene' and geometryStatus='scaled-plan'.
-3. Photo-only geometry must be relative-only with units='scene'. It may describe relative placement and visible object proportions, but it must never be used as a metric engineering measurement.
-4. Use geometryStatus='verified-metric' and units='m' only when overall dimensions are explicitly evidenced by a dimensioned plan, nameplate/manufacturer dimensions, or user input included in the supplied facts.
-5. Preserve every visible equipment identity/specification fact without converting visual text into an unverified measurement.
-6. Create rooms, walls, openings and visible assets separately. Coordinates must follow the stated plan convention.
-7. Do not create a model with an empty geometric payload. When evidence is insufficient for geometry, return geometry with units='scene' only when relative structure is visually supported; otherwise the server will reject it.
-8. Tie confidence to evidence quality, not model fluency.
+Reconstruction rules:
+1. Treat all supplied images as observations of the same physical asset/space. Merge repeated objects instead of duplicating them.
+2. Use the full sweep to improve object inventory and relative placement. An object visible in any supplied view should be considered for the asset inventory.
+3. Preserve identifiable engineering objects such as HVAC units, ducts, diffusers, pumps, motors, valves, panels, meters, refrigeration, piping, insulation and visible appliances. Also preserve ordinary objects where visually clear.
+4. Never invent metric dimensions. A metric value is allowed only when directly evidenced by a dimensioned plan, manufacturer/nameplate dimensional data, or explicit user-entered value in extracted facts.
+5. Photo-only geometry must be relative-only with units='scene'. Relative positions are allowed; false metre measurements are not.
+6. Do not turn visual confidence into engineering confidence. Never infer efficiency, load, capacity, pressure, temperature, hidden dimensions, fault severity or hidden components.
+7. If the same object appears repeatedly, use one stable asset and increase confidence only when views corroborate it.
+8. Give equipment labels the most specific defensible class supported by the images; broader labels are preferable to hallucinated specificity.
+9. Visible names/models/specifications may be preserved only when clearly readable in evidence. Never autocomplete text.
+10. Do not emit an empty geometric payload when visible geometry exists.
 
-Extracted engineering evidence and user anchors:
-${JSON.stringify(input.extracted).slice(0, 42000)}
+The extracted evidence may contain cross-view object labels/bounding boxes and should be treated as perception evidence, not as engineering measurements:
+${JSON.stringify(input.extracted).slice(0, 50000)}
 
 Return only JSON matching the schema.`;
 }
 
-async function fileToDataUrl(file: File) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  return `data:${file.type};base64,${Buffer.from(bytes).toString("base64")}`;
-}
+async function fileToDataUrl(file: File) { const bytes = new Uint8Array(await file.arrayBuffer()); return `data:${file.type};base64,${Buffer.from(bytes).toString("base64")}`; }
 
 export async function POST(request: Request) {
   try {
@@ -82,12 +74,11 @@ export async function POST(request: Request) {
     const industry = String(form.get("industry") || "other").slice(0, 80);
     const title = String(form.get("title") || "OVERHAUL Twin").slice(0, 120);
     let extracted: unknown[] = [];
-    try { const parsed = JSON.parse(String(form.get("extracted") || "[]")) as { observations?: unknown[]; supplemental?: Record<string, unknown>; [key: string]: unknown }; extracted = [parsed]; } catch { extracted = []; }
+    try { const parsed = JSON.parse(String(form.get("extracted") || "[]")) as { supplemental?: Record<string, unknown>; [key: string]: unknown }; extracted = [parsed]; } catch { extracted = []; }
     const supplemental = extracted[0] && typeof extracted[0] === "object" && (extracted[0] as { supplemental?: Record<string, unknown> }).supplemental ? (extracted[0] as { supplemental: Record<string, unknown> }).supplemental : {};
     const entries = form.getAll("file").filter((value): value is File => value instanceof File).slice(0, MAX_FILES);
     const images = entries.filter((file) => file.size > 0 && file.size <= MAX_BYTES && file.type.startsWith("image/"));
 
-    // Never let an image-less submission overwrite a real scan twin with a made-up model.
     if (!images.length) {
       const parametric = parametricTwin(scope, className, title, supplemental);
       if (parametric) return NextResponse.json({ model: parametric, generated: "parametric", provider: "OVERHAUL deterministic geometry" });
@@ -95,9 +86,9 @@ export async function POST(request: Request) {
     }
     if (!apiKey) return NextResponse.json({ error: "Nebius multimodal twin generation is not configured." }, { status: 503 });
 
-    const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt({ scope, className, industry, title, extracted }) }];
+    const content: Array<Record<string, unknown>> = [{ type: "text", text: prompt({ scope, className, industry, title, extracted, imageCount: images.length }) }];
     for (const file of images) content.push({ type: "image_url", image_url: { url: await fileToDataUrl(file) } });
-    const response = await fetch(`${BASE_URL}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: MODEL, messages: [{ role: "user", content }], response_format: { type: "json_schema", json_schema: { name: "overhaul_twin", strict: true, schema } }, temperature: 0, max_tokens: 10000 }) });
+    const response = await fetch(`${BASE_URL}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: MODEL, messages: [{ role: "user", content }], response_format: { type: "json_schema", json_schema: { name: "overhaul_twin", strict: true, schema } }, temperature: 0, max_tokens: 12000 }) });
     if (!response.ok) { console.error("Twin generation failed", response.status, (await response.text()).slice(0, 800)); return NextResponse.json({ error: "Twin generation failed." }, { status: 502 }); }
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
     const parsed = JSON.parse(payload.choices?.[0]?.message?.content || "null") as Record<string, unknown> | null;
@@ -105,14 +96,13 @@ export async function POST(request: Request) {
 
     const hasMetricAnchor = Boolean(numberFrom(supplemental, "geometry_width_m", "width_m") && numberFrom(supplemental, "geometry_depth_m", "depth_m") && numberFrom(supplemental, "geometry_height_m", "height_m")) || extracted.some((item) => JSON.stringify(item).match(/(?:dimension|width|depth|height).{0,60}(?:m|meter|metre)/i));
     if (!hasMetricAnchor && parsed.units === "m") {
-      parsed.units = "scene";
-      parsed.geometryStatus = "relative-only";
+      parsed.units = "scene"; parsed.geometryStatus = "relative-only";
       if (parsed.geometryBasis === "dimensioned-floorplan") parsed.geometryBasis = "photo-layout";
       parsed.warnings = [...(Array.isArray(parsed.warnings) ? parsed.warnings : []), "Metric scale was not evidenced; geometry has been downgraded to relative-only scene units."];
     }
     const twin = sanitizeTwinModel(parsed);
     if (!twin) return NextResponse.json({ error: "Twin geometry was rejected because it was incomplete or claimed unsupported metric precision." }, { status: 422 });
-    return NextResponse.json({ model: { ...twin, generatedAt: new Date().toISOString() }, modelName: MODEL, provider: "Nebius Token Factory / NVIDIA Nemotron" });
+    return NextResponse.json({ model: { ...twin, generatedAt: new Date().toISOString() }, modelName: MODEL, provider: "Nebius Token Factory / NVIDIA Nemotron", visualViewsUsed: images.length });
   } catch (error) {
     console.error("Twin generation route error", error);
     return NextResponse.json({ error: "Twin generation failed." }, { status: 500 });
