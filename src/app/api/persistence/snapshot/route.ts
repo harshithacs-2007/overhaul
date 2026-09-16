@@ -8,6 +8,7 @@ const MAX_OBSERVATIONS = 500;
 const MAX_EVIDENCE = 20;
 const MAX_SCAN_SECTORS = 12;
 const MAX_FUSION_FINDINGS = 40;
+const MAX_FUSION_DETAILS = 20;
 const SCOPES = new Set(["building", "facility", "equipment"]);
 
 type AnyRecord = Record<string, unknown>;
@@ -103,9 +104,20 @@ function sanitizeScanFusion(input: unknown) {
       retrofitRelevance: text(row.retrofitRelevance),
     };
   }).filter(Boolean);
+  const visibleDetails = Array.isArray(fusion.visibleDetails) ? fusion.visibleDetails.slice(0, MAX_FUSION_DETAILS).map((detail) => {
+    if (!detail || typeof detail !== "object") return null;
+    const row = detail as AnyRecord;
+    return {
+      label: text(row.label, "Visible detail"),
+      value: text(row.value),
+      views: Math.max(1, Math.floor(finiteNumber(row.views) ?? 1)),
+      confidence: Math.min(1, Math.max(0, finiteNumber(row.confidence) ?? 0)),
+    };
+  }).filter(Boolean) : [];
   return {
     summary: text(fusion.summary),
-    merged_objects: Array.isArray(fusion.merged_objects) ? fusion.merged_objects.slice(0, 40) : [],
+    objects: Array.isArray(fusion.objects) ? fusion.objects.slice(0, 40) : [],
+    visibleDetails,
     findings,
     coverage: fusion.coverage && typeof fusion.coverage === "object" ? fusion.coverage : null,
     nextEvidence: Array.isArray(fusion.nextEvidence) ? fusion.nextEvidence.slice(0, 20).map((value) => text(value)).filter(Boolean) : [],
@@ -157,13 +169,7 @@ function buildObservationRows(projectId: string, assetId: string, extractions: u
   return rows;
 }
 
-async function persistEvidenceAndObservations(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  projectId: string,
-  assetId: string,
-  assessment: AnyRecord,
-  extractions: unknown[],
-) {
+async function persistEvidenceAndObservations(supabase: ReturnType<typeof getSupabaseAdmin>, projectId: string, assetId: string, assessment: AnyRecord, extractions: unknown[]) {
   const evidenceItems = Array.isArray(assessment.evidence) ? assessment.evidence.slice(0, MAX_EVIDENCE) as AnyRecord[] : [];
   const candidateRows = buildEvidenceRows(projectId, assetId, evidenceItems);
   const existing = await supabase.from("evidence").select("id, source_ref").eq("project_id", projectId).limit(MAX_EVIDENCE * 2);
@@ -260,7 +266,7 @@ export async function POST(request: Request) {
 
     if (!projectId || !assetId) throw new Error("Persistence identifiers were not established.");
     const counts = await persistEvidenceAndObservations(supabase, projectId, assetId, assessment, extractions);
-    return NextResponse.json({ projectId, assetId, updated: Boolean(existingProjectId), counts: { ...counts, roomScanSectors: roomScan ? roomScan.sectors.length : 0, scanFusionFindings: fusionFindingsCount } });
+    return NextResponse.json({ projectId, assetId, updated: Boolean(existingProjectId), counts: { ...counts, roomScanSectors: roomScan ? roomScan.sectors.length : 0, scanFusionFindings: fusionFindingsCount, scanFusionVisibleDetails: scanFusion && Array.isArray(scanFusion.visibleDetails) ? scanFusion.visibleDetails.length : 0 } });
   } catch (error) {
     console.error("OVERHAUL persistence route error", error);
     return NextResponse.json({ error: "Could not persist this assessment." }, { status: 500 });
