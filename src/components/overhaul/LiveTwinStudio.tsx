@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import type { TwinModel } from "@/lib/engineering/twinModel";
 import Twin3DCanvas from "./Twin3DCanvas";
-import { simulateBuildingHourly, type ClimateHour, type HourlyBuildingResult } from "@/lib/engineering/hourlyBuildingSimulation";
-import { simulatePhysicsScenario } from "@/lib/engineering";
+import { simulateBuildingHourly, type ClimateHour } from "@/lib/engineering/hourlyBuildingSimulation";
 
 type Scope = "building" | "facility" | "equipment";
 type Values = Record<string, number | string | null | undefined>;
@@ -14,7 +13,6 @@ type Impact = { current: { load: number; power: number; energy: number; utilizat
 function n(values: Values, ...keys: string[]) { for (const key of keys) { const value = Number(values[key]); if (Number.isFinite(value) && value > 0) return value; } return null; }
 function zeroOrPositive(values: Values, ...keys: string[]) { for (const key of keys) { const value = Number(values[key]); if (Number.isFinite(value) && value >= 0) return value; } return null; }
 function fmt(value: number | null) { return value == null ? "—" : value.toLocaleString("en-IN", { maximumFractionDigits: 1 }); }
-function stateOf(result: { thermalLoadKW: number; electricalPowerKW: number; annualEnergyKWh: number; utilization: number }) { return { load: result.thermalLoadKW, power: result.electricalPowerKW, energy: result.annualEnergyKWh, utilization: result.utilization }; }
 
 function buildingImpact(values: Values, climate: ClimateHour[] | null): Impact | null {
   const envelopeU = n(values, "envelope_u_w_m2k");
@@ -30,11 +28,11 @@ function buildingImpact(values: Values, climate: ClimateHour[] | null): Impact |
   if (envelopeU == null || envelopeArea == null || ventilation == null || infiltration == null || !Number.isFinite(indoor) || capacity == null || cop == null || internal == null || solarFactor == null || tariff == null || !climate?.length) return null;
 
   const baseline = simulateBuildingHourly({ envelopeU_W_m2K: envelopeU, envelopeAreaM2: envelopeArea, ventilationM3s: ventilation, infiltrationM3s: infiltration, indoorTempC: indoor, hvacCapacityKW: capacity, hvacCOP: cop, internalGainKW: internal, solarGainFactorM2: solarFactor, tariffINRPerKWh: tariff, climate });
-  const proposedEnvelopeR = n(values, "proposed_r_value_m2k_w");
+  const proposedR = n(values, "proposed_r_value_m2k_w");
   const proposedCop = n(values, "proposed_cop");
-  const proposed = simulateBuildingHourly({ envelopeU_W_m2K: proposedEnvelopeR != null ? 1 / proposedEnvelopeR : envelopeU, envelopeAreaM2: envelopeArea, ventilationM3s: ventilation, infiltrationM3s: infiltration, indoorTempC: indoor, hvacCapacityKW: capacity, hvacCOP: proposedCop ?? cop, internalGainKW: internal, solarGainFactorM2: solarFactor, tariffINRPerKWh: tariff, climate });
+  const proposed = simulateBuildingHourly({ envelopeU_W_m2K: proposedR != null ? 1 / proposedR : envelopeU, envelopeAreaM2: envelopeArea, ventilationM3s: ventilation, infiltrationM3s: infiltration, indoorTempC: indoor, hvacCapacityKW: capacity, hvacCOP: proposedCop ?? cop, internalGainKW: internal, solarGainFactorM2: solarFactor, tariffINRPerKWh: tariff, climate });
   const deltaEnergy = proposed.annualCoolingEnergyKWh - baseline.annualCoolingEnergyKWh;
-  return { current: { load: baseline.peakThermalLoadKW, power: baseline.peakElectricalPowerKW, energy: baseline.annualCoolingEnergyKWh, utilization: capacity > 0 ? baseline.peakThermalLoadKW / capacity : 0, cost: baseline.annualCostINR }, proposed: { load: proposed.peakThermalLoadKW, power: proposed.peakElectricalPowerKW, energy: proposed.annualCoolingEnergyKWh, utilization: capacity > 0 ? proposed.peakThermalLoadKW / capacity : 0, cost: proposed.annualCostINR }, savingPercent: baseline.annualCoolingEnergyKWh > 0 ? -deltaEnergy / baseline.annualCoolingEnergyKWh * 100 : 0, deltaPower: proposed.peakElectricalPowerKW - baseline.peakElectricalPowerKW, deltaLoad: proposed.peakThermalLoadKW - baseline.peakThermalLoadKW, overCapacityHours: proposed.hoursOverCapacity, datasetHours: proposed.datasetHours, basis: `NASA POWER ${climate.length.toLocaleString()} hourly boundary + explicit envelope/air/HVAC inputs` };
+  return { current: { load: baseline.peakThermalLoadKW, power: baseline.peakElectricalPowerKW, energy: baseline.annualCoolingEnergyKWh, utilization: baseline.peakThermalLoadKW / capacity, cost: baseline.annualCostINR }, proposed: { load: proposed.peakThermalLoadKW, power: proposed.peakElectricalPowerKW, energy: proposed.annualCoolingEnergyKWh, utilization: proposed.peakThermalLoadKW / capacity, cost: proposed.annualCostINR }, savingPercent: baseline.annualCoolingEnergyKWh > 0 ? -deltaEnergy / baseline.annualCoolingEnergyKWh * 100 : 0, deltaPower: proposed.peakElectricalPowerKW - baseline.peakElectricalPowerKW, deltaLoad: proposed.peakThermalLoadKW - baseline.peakThermalLoadKW, overCapacityHours: proposed.hoursOverCapacity, datasetHours: proposed.datasetHours, basis: `NASA POWER ${climate.length.toLocaleString()} hourly boundary + explicit envelope/air/HVAC inputs` };
 }
 
 function equipmentImpact(values: Values): Impact | null {
@@ -50,11 +48,11 @@ function equipmentImpact(values: Values): Impact | null {
   let proposedPower = observedPower;
   let proposedEnergy = currentEnergy;
   const targetEfficiency = n(values, "proposed_efficiency");
-  if (targetEfficiency != null && efficiency != null && efficiency > 0) proposedPower = load / targetEfficiency;
+  if (targetEfficiency != null && (efficiency != null || observedPower > 0)) proposedPower = load / targetEfficiency;
   const targetHours = n(values, "proposed_runtime_hours");
   if (targetHours != null) proposedEnergy = proposedPower * targetHours; else proposedEnergy = proposedPower * hours;
   const annualSaving = currentEnergy - proposedEnergy;
-  return { current: { load, power: observedPower, energy: currentEnergy, utilization: load / capacity, cost: currentEnergy * tariff }, proposed: { load, power: proposedPower, energy: proposedEnergy, utilization: load / capacity, cost: proposedEnergy * tariff }, savingPercent: currentEnergy > 0 ? annualSaving / currentEnergy * 100 : 0, deltaPower: proposedPower - observedPower, deltaLoad: 0, basis: observedPower > 0 ? "Observed electrical power + explicit runtime" : "Explicit load/efficiency + runtime" };
+  return { current: { load, power: observedPower, energy: currentEnergy, utilization: load / capacity, cost: currentEnergy * tariff }, proposed: { load, power: proposedPower, energy: proposedEnergy, utilization: load / capacity, cost: proposedEnergy * tariff }, savingPercent: currentEnergy > 0 ? annualSaving / currentEnergy * 100 : 0, deltaPower: proposedPower - observedPower, deltaLoad: 0, basis: "Observed electrical power + explicit load/runtime; optional counterfactual efficiency/runtime is explicit." };
 }
 
 export default function LiveTwinStudio({ scope, title, values, twin, climate }: { scope: Scope; title: string; values: Values; twin?: TwinModel | null; climate?: StoredClimate | null }) {
