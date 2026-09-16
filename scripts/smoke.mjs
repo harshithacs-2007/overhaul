@@ -79,6 +79,15 @@ async function main() {
     if (missingEvidence.status !== 400) fail(`/api/evidence/extract invalid-input guard returned HTTP ${missingEvidence.status}, expected 400`);
     console.log("SMOKE PASS: evidence API invalid-input guard");
 
+    const dataset = new File(["timestamp,power_kw\n2026-09-01T09:00:00Z,14.8\n2026-09-01T10:00:00Z,18.0\n"], "smoke.csv", { type: "text/csv" });
+    const datasetForm = new FormData();
+    datasetForm.set("file", dataset, dataset.name);
+    const datasetResponse = await fetchWithTimeout(`${base}/api/evidence/extract`, { method: "POST", body: datasetForm });
+    if (!datasetResponse.ok) fail(`/api/evidence/extract deterministic dataset path returned HTTP ${datasetResponse.status}`);
+    const datasetPayload = await datasetResponse.json();
+    if (datasetPayload.result?.model !== "OVERHAUL deterministic dataset analyzer" || datasetPayload.result?.observations?.[0]?.numericValue !== 2) fail("deterministic dataset analyzer did not return row count without LLM credentials");
+    console.log("SMOKE PASS: deterministic dataset evidence path");
+
     console.log("SMOKE COMPLETE: production HTTP surface is responding");
   } finally {
     stopServer();
