@@ -1,20 +1,20 @@
 # OVERHAUL
 
-**OVERHAUL is a universal retrofit intelligence engine for buildings, facilities, and equipment.** Its primary job is to determine **which retrofit intervention is justified, what it will change before money is spent, how confident that prediction is, and whether the implemented result matches the model.**
+**OVERHAUL is a universal retrofit intelligence engine for buildings, facilities, and equipment.** Its job is to turn real asset evidence into a defensible retrofit decision: what is known, what is uncertain, what changes under a proposed intervention, and how the result can be verified after implementation.
 
 RCA, data collection, digital twins, diagnostics, and computer vision are supporting layers. The product outcome is the **retrofit decision**.
 
-The product is **evidence-first and engineering-constrained**. AI/ML components may assist perception, surrogate modeling, or orchestration, but the application does not treat an AI-generated number as an engineering fact. Deterministic physics, explicit reference data, provenance, uncertainty, and evidence gates remain the basis for decision-critical calculations.
+The product is **evidence-first and engineering-constrained**. AI/ML may assist perception, surrogate modeling, or orchestration, but decision-critical numbers are not accepted merely because a model generated them. Deterministic physics, explicit reference data, provenance, uncertainty, and evidence gates remain the basis for engineering calculations.
 
 ## Product flow
 
 `SEE → UNDERSTAND → MODEL → COMPARE → DIAGNOSE → SIMULATE → OPTIMIZE → DECIDE → IMPLEMENT → VERIFY → LEARN`
 
-The key loop is:
+Core loop:
 
 `REAL ASSET → EVIDENCE → BASELINE → RETROFIT OPTIONS → WHAT-IF SIMULATION → TRADE-OFFS → DECISION → VERIFY`
 
-### Core retrofit capabilities
+## Core capabilities
 
 - Evidence-first intake for buildings, facilities, machinery, and equipment
 - Retrofit-oriented digital twin / digital shadow reconstruction
@@ -22,33 +22,29 @@ The key loop is:
 - Deterministic building thermal-load and HVAC simulation
 - Deterministic equipment power, runtime, capacity, and efficiency simulation
 - Coupled envelope + HVAC reasoning
-- Root-cause analysis used to explain why a retrofit is or is not justified
-- Evidence-backed retrofit candidate generation and intervention scoring
+- Root-cause diagnosis and evidence-backed intervention candidates
 - Economics, sensitivity, uncertainty, portfolio optimization, and decision provenance
-- Measure-and-verify workflow for post-implementation reality checks
-- Dataset adapters for climate, building, HVAC/FDD, retrofit, materials, and geometry sources
+- Measure-and-verify workflow for post-implementation checks
+- Dataset adapters for climate, HVAC/FDD, retrofit, materials, and geometry data
 - RESCAST surrogate infrastructure where a trained/calibrated model is appropriate
-- Audit-oriented provenance and uncertainty handling
 - Parametric Blender/CAD interoperability with OBJ, DXF footprint, and OVERHAUL semantic manifest exports
-- Presentation-mode synthetic building and machinery demonstrations that are explicitly labeled as demo data
+- Synthetic, explicitly labelled validation fixtures for controlled demos
 
-## Geometry and BIM/CAD interoperability
+## Geometry and interoperability
 
-OVERHAUL separates **semantic engineering identity** from visualization geometry. The asset twin exposes metric geometry only when width, depth, and height are evidenced or explicitly supplied. Missing geometry stays visibly unresolved rather than being fabricated.
+OVERHAUL separates **semantic engineering identity** from visualization geometry. Metric geometry is emitted only when dimensions are evidenced or explicitly supplied. Photo-only reconstruction remains relative rather than inventing metre-scale measurements.
 
-The interchange layer exports:
+Exports include:
 
-- **OBJ** — explicit parametric geometry suitable for Blender inspection and downstream mesh workflows
-- **DXF** — metric footprint geometry suitable for CAD drafting workflows
-- **OVERHAUL manifest JSON** — asset class, dimensions, engineering parameters, evidence IDs, coordinate convention, and provenance
-
-The manifest is the continuity layer for a future IFC/BIM adapter: the engineering model is not reduced to an untraceable mesh when it leaves OVERHAUL.
+- **OBJ** — parametric geometry for Blender and mesh workflows
+- **DXF** — metric footprint geometry for CAD workflows
+- **OVERHAUL manifest JSON** — asset identity, dimensions, engineering parameters, evidence IDs, coordinate convention, and provenance
 
 ## Data grounding
 
-The repository contains dataset manifests and conservative engineering adapters rather than pretending raw datasets are bundled into the web application. Current adapter coverage includes NASA POWER climate data, LBNL FDD HVAC datasets, RESCAST building data, and REMDB retrofit/economic data.
+The repository contains conservative dataset adapters and manifests rather than pretending raw external datasets are bundled into the web application. Supported adapter families include NASA POWER climate data, LBNL FDD HVAC data, RESCAST building data, and REMDB retrofit/economic data.
 
-Source records are promoted into engineering quantities only when their semantics and units are explicit. Encoded categorical fields are not silently interpreted as SI measurements, and missing engineering inputs block calculations instead of being fabricated.
+Source records are promoted into engineering quantities only when their semantics and units are explicit. Missing inputs block calculations instead of being silently fabricated.
 
 ## Stack
 
@@ -57,7 +53,7 @@ Source records are promoted into engineering quantities only when their semantic
 - Three.js for the in-browser interactive 3D engineering workspace
 - Framer Motion
 - Vitest
-- Cloudflare Workers / Pages deployment flow
+- Netlify-compatible Next.js deployment workflow
 
 ## Setup
 
@@ -66,22 +62,26 @@ Source records are promoted into engineering quantities only when their semantic
 3. Run `npm install`.
 4. Run `npm run dev`.
 
-## Engineering architecture
+## Verification
 
-Pure engineering functions live under `src/lib/engineering/`, with dataset normalization and adapters under `src/lib/data/`. The application keeps evidence acquisition, asset modeling, reference expectations, simulation, diagnostics, economics, and provenance as separable layers so individual calculations can be tested and audited.
+The GitHub Actions gate runs:
 
-The UI is intentionally **retrofit-first**: users should provide the least information necessary to establish a defensible baseline, see candidate intervention consequences, compare current vs counterfactual states, and proceed toward implementation and verification.
+- `npm run lint`
+- `npx tsc --noEmit`
+- `npm test`
+- `npm run build`
+- `npm run smoke`
 
-## Verified workflow
+The smoke test starts the compiled production server and probes the core routes plus deterministic/invalid-input API paths. The validation lab is available at `/validation` and the reproducible fixture protocol is documented in `docs/VALIDATION_REPORT.md`.
 
-The current `master` branch is CI-gated with `npm run lint`, `npx tsc --noEmit`, and `npm run build`. The machine retrofit path additionally exercises deterministic calculation tests for explicit baselines, partial bill history, input validation, and counterfactual target handling.
+The repository's deterministic regression suite currently validates building, equipment, retrofit-counterfactual, numeric-input, dataset, provenance, and interoperability behaviour. Vision accuracy is reported separately from software correctness and must include ground truth, sample count, failure cases, and the actual measured metrics.
 
 ## Scripts
 
 - `npm run dev` — development server
 - `npm run build` — production build
-- `npm test` — calculation and engineering unit tests
+- `npm test` — engineering and regression tests
 - `npm run lint` — ESLint checks
-- `npm run train:rescast` — train the RESCAST surrogate when the required local dataset/training inputs are available
-
-<!-- Vercel deployment heartbeat: 2026-09-16 -->
+- `npm run smoke` — compiled-app HTTP smoke test
+- `npm run train:rescast` — train the RESCAST surrogate when required local inputs are available
+- `npm run train:rescast-timeseries` — train the RESCAST time-series surrogate when required local inputs are available
