@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "cases": [
+    {
+      "id": "pump-baseline",
+      "domain": "equipment",
+      "inputs": {"loadKW": 18, "ratedCapacityKW": 25, "efficiency": 0.72, "annualHours": 4200, "electricityRateINRPerKWh": 9},
+      "groundTruth": {"annualEnergyKWh": 105000, "annualCostINR": 945000}
+    },
+    {
+      "id": "pump-efficiency-retrofit",
+      "domain": "equipment",
+      "inputs": {"loadKW": 18, "ratedCapacityKW": 25, "efficiency": 0.72, "annualHours": 4200, "electricityRateINRPerKWh": 9, "retrofitEfficiency": 0.84},
+      "groundTruth": {"baselineAnnualEnergyKWh": 105000, "proposedAnnualEnergyKWh": 90000, "annualEnergySavingKWh": 15000, "annualCostSavingINR": 135000}
+    },
+    {
+      "id": "building-envelope",
+      "domain": "building",
+      "inputs": {"floorAreaM2": 1200, "envelopeUA_W_per_K": 950, "outdoorTempC": 38, "indoorTempC": 24, "solarGainKW": 8, "internalGainKW": 12, "hvacCapacityKW": 80, "hvacCOP": 3.2, "annualCoolingHours": 2400, "electricityRateINRPerKWh": 9},
+      "retrofit": {"envelopeUA_W_per_K": 650},
+      "groundTruth": {"baselineThermalLoadKW": 33.3, "baselineAnnualEnergyKWh": 24975, "proposedThermalLoadKW": 29.1, "proposedAnnualEnergyKWh": 21825, "annualEnergySavingKWh": 3150}
+    },
+    {
+      "id": "input-edge-cases",
+      "domain": "validation",
+      "inputs": ["1200", "1,200", "  12.50 ", "0.84", "", "abc", "-4", "1e3"],
+      "expected": {"blankIsMissing": true, "commaFormattedParses": true, "scientificNotationParses": true, "malformedRejected": true}
+    }
+  ]
+}
