@@ -10,20 +10,21 @@ type Finding = {
   views: number;
   evidence: string;
   engineeringStatus: "observed" | "requires-verification";
-  requiredVerification: string;
+  requiredVerification: string[];
   retrofitRelevance: string;
 };
 
 type Fusion = {
   summary?: string;
   objects?: Array<{ label: string; views: number; confidence: number; evidence: string }>;
+  visibleDetails?: Array<{ label: string; value: string; views: number; confidence: number }>;
   findings?: Finding[];
   coverage?: { viewsAnalysed: number; repeatConfirmed: number; blindSpots: string[] };
   nextEvidence?: string[];
 };
 
 type Scan = {
-  sectors?: Array<{ result?: { summary?: string; detections?: Array<{ label: string; confidence: number; condition?: string; evidence?: string }>; engineering_clues?: string[]; coverage_notes?: string[] }; sector?: number }>;
+  sectors?: Array<{ result?: { summary?: string; detections?: Array<{ label: string; confidence: number; condition?: string; evidence?: string }>; engineering_clues?: string[]; coverage_notes?: string[]; visible_details?: Record<string, unknown> }; sector?: number }>;
   completed?: boolean;
 };
 
@@ -75,7 +76,7 @@ export default function ScanFusionPanel() {
         <div>
           <p className="font-mono text-[8px] uppercase tracking-[.18em] text-amber-200">Cross-view problem intelligence</p>
           <h2 className="mt-1 font-display text-2xl">Separate what the camera saw from what engineering still needs to prove.</h2>
-          <p className="mt-2 max-w-4xl text-[10px] leading-5 text-steel">The scan is fused across independent views so repeated visible conditions are confirmed visually, while unmeasured faults remain explicitly verification-gated.</p>
+          <p className="mt-2 max-w-4xl text-[10px] leading-5 text-steel">The scan is fused across independent views. Repeated visible conditions gain visual confidence; identity/nameplate facts remain evidence until validated.</p>
         </div>
         <button type="button" onClick={() => void analyse()} disabled={status === "analysing"} className="border border-amber-200/25 px-3 py-2 font-mono text-[8px] uppercase text-amber-200 disabled:opacity-40">{status === "analysing" ? "Analysing…" : "Re-analyse sweep"}</button>
       </div>
@@ -89,16 +90,14 @@ export default function ScanFusionPanel() {
         <Metric label="Findings" value={String(findings.length)} />
         <Metric label="Next evidence" value={String(fusion.nextEvidence?.length ?? 0)} />
       </div>
+      {fusion.visibleDetails?.length ? <div className="border-b border-steel/10 px-5 py-4"><p className="font-mono text-[8px] uppercase text-teal">Visible identity / specification evidence</p><div className="mt-3 grid gap-2 md:grid-cols-2">{fusion.visibleDetails.slice(0, 12).map((detail) => <div key={`${detail.label}-${detail.value}`} className="border border-teal/10 bg-teal/[.02] p-3"><div className="flex justify-between gap-3"><p className="text-[9px] text-paper">{detail.label}</p><span className="font-mono text-[7px] text-steel">{Math.round(detail.confidence * 100)}% · {detail.views} view{detail.views === 1 ? "" : "s"}</span></div><p className="mt-1 break-words font-mono text-[9px] text-teal">{detail.value}</p></div>)}</div><p className="mt-3 text-[8px] leading-4 text-steel">These are preserved from visible evidence. They are not treated as measured performance or validated operating values.</p></div> : null}
       {fusion.summary ? <div className="border-b border-steel/10 px-5 py-4 text-[10px] leading-5 text-paper">{fusion.summary}</div> : null}
       <div className="grid gap-3 p-5 lg:grid-cols-2">
         {findings.map((finding) => <article key={finding.id} className="border border-steel/12 bg-black/15 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div><p className="font-mono text-[7px] uppercase tracking-[.12em] text-steel">{finding.type}</p><h3 className="mt-1 text-sm text-paper">{finding.label}</h3></div>
-            <span className={`border px-2 py-1 font-mono text-[7px] uppercase ${finding.engineeringStatus === "observed" ? "border-teal/25 text-teal" : "border-amber-200/25 text-amber-200"}`}>{finding.engineeringStatus}</span>
-          </div>
+          <div className="flex items-start justify-between gap-3"><div><p className="font-mono text-[7px] uppercase tracking-[.12em] text-steel">{finding.type}</p><h3 className="mt-1 text-sm text-paper">{finding.label}</h3></div><span className={`border px-2 py-1 font-mono text-[7px] uppercase ${finding.engineeringStatus === "observed" ? "border-teal/25 text-teal" : "border-amber-200/25 text-amber-200"}`}>{finding.engineeringStatus}</span></div>
           <div className="mt-3 grid grid-cols-2 gap-2"><Metric label="Visual confidence" value={`${Math.round(finding.confidence * 100)}%`} /><Metric label="Views" value={String(finding.views)} /></div>
           <p className="mt-3 text-[9px] leading-5 text-steel"><span className="text-paper">Evidence:</span> {finding.evidence}</p>
-          <p className="mt-2 text-[9px] leading-5 text-steel"><span className="text-paper">Verify:</span> {finding.requiredVerification}</p>
+          {finding.requiredVerification?.length ? <p className="mt-2 text-[9px] leading-5 text-steel"><span className="text-paper">Verify:</span> {finding.requiredVerification.join("; ")}</p> : null}
           <p className="mt-2 text-[9px] leading-5 text-steel"><span className="text-paper">Retrofit relevance:</span> {finding.retrofitRelevance}</p>
         </article>)}
       </div>
