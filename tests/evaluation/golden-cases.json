@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "purpose": "Controlled regression and demo fixtures for OVERHAUL. These cases are ground truth references, not claims about real-world model accuracy.",
   "cases": [
     {
@@ -8,6 +8,13 @@
       "assetClass": "small office room",
       "image": "../fixtures/room-hvac-ground-truth.svg",
       "expectedDetections": ["window", "split air conditioner", "ceiling fan", "table", "door"],
+      "groundTruthBoxes": {
+        "window": {"x": 0.0703125, "y": 0.125, "width": 0.28125, "height": 0.2638889},
+        "split air conditioner": {"x": 0.4375, "y": 0.1458333, "width": 0.234375, "height": 0.1597222},
+        "ceiling fan": {"x": 0.7148438, "y": 0.4722222, "width": 0.1796875, "height": 0.3194444},
+        "table": {"x": 0.0820313, "y": 0.7847222, "width": 0.1328125, "height": 0.1138889},
+        "door": {"x": 0.5625, "y": 0.7986111, "width": 0.140625, "height": 0.0972222}
+      },
       "metrics": {
         "floor_area_m2": 100,
         "envelope_ua_w_per_k": 150,
@@ -33,6 +40,10 @@
       "assetClass": "pump",
       "image": "../fixtures/pump-room-ground-truth.svg",
       "expectedDetections": ["pump", "variable frequency drive"],
+      "groundTruthBoxes": {
+        "pump": {"x": 0.140625, "y": 0.3611111, "width": 0.3632813, "height": 0.2361111},
+        "variable frequency drive": {"x": 0.71875, "y": 0.3402778, "width": 0.1171875, "height": 0.2361111}
+      },
       "metrics": {
         "load_kw": 40,
         "capacity_kw": 50,
@@ -52,7 +63,7 @@
     }
   ],
   "scoring": {
-    "detection": "class precision, class recall, and bounding-box IoU where boxes are available",
+    "detection": "class precision, class recall, and bounding-box IoU; IoU threshold 0.50 for a matched detection",
     "numeric": "MAE and MAPE against known fixture values; report undefined MAPE separately when ground truth is zero",
     "physics": "absolute error against deterministic engine ground truth",
     "workflow": "pass/fail for persistence, navigation, reload, invalid-input handling, and error recovery"
