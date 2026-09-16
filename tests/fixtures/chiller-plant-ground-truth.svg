@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#e5e7eb"/>
+  <rect y="500" width="1280" height="220" fill="#9ca3af"/>
+  <rect x="120" y="190" width="380" height="220" rx="24" fill="#cbd5e1" stroke="#1f2937" stroke-width="9"/>
+  <rect x="175" y="245" width="110" height="85" fill="#60a5fa" stroke="#1f2937" stroke-width="6"/>
+  <rect x="310" y="245" width="130" height="85" fill="#bfdbfe" stroke="#1f2937" stroke-width="6"/>
+  <text x="215" y="385" font-family="Arial" font-size="30" fill="#111827">CHILLER</text>
+  <rect x="650" y="130" width="140" height="270" rx="18" fill="#f3f4f6" stroke="#1f2937" stroke-width="8"/>
+  <circle cx="720" cy="220" r="48" fill="#93c5fd" stroke="#1f2937" stroke-width="6"/>
+  <circle cx="720" cy="330" r="48" fill="#93c5fd" stroke="#1f2937" stroke-width="6"/>
+  <text x="652" y="455" font-family="Arial" font-size="28" fill="#111827">PUMP</text>
+  <rect x="890" y="180" width="180" height="180" rx="20" fill="#d1d5db" stroke="#1f2937" stroke-width="8"/>
+  <path d="M925 270 H1035" stroke="#2563eb" stroke-width="14"/>
+  <text x="905" y="405" font-family="Arial" font-size="28" fill="#111827">VFD PANEL</text>
+  <rect x="75" y="75" width="310" height="70" rx="10" fill="#111827"/>
+  <text x="110" y="121" font-family="Arial" font-size="30" fill="#ffffff">420 kW RATED</text>
+  <rect x="440" y="75" width="310" height="70" rx="10" fill="#111827"/>
+  <text x="480" y="121" font-family="Arial" font-size="30" fill="#ffffff">0.82 COP</text>
+</svg>
