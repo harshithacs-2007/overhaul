@@ -143,9 +143,10 @@ export function extractBillEnergy(observations: Array<{ field?: string; numericV
     if (!Number.isFinite(value) || (value as number) <= 0) continue;
     const field = String(observation.field || "").toLowerCase();
     const unit = String(observation.unit || "").toLowerCase().replace(/\s+/g, "");
+    const isTariff = field.includes("tariff") || unit.includes("inr/kwh") || unit.includes("₹/kwh") || unit.includes("$/kwh");
     const energyField = field.includes("energy") || field.includes("consumption") || field.includes("units") || field.includes("kwh");
-    const energyUnit = unit.includes("kwh") || unit === "unit" || unit === "units";
-    if (!(energyField || energyUnit)) continue;
+    const energyUnit = unit === "kwh" || unit === "unit" || unit === "units";
+    if (isTariff || !(energyField || energyUnit)) continue;
     if (field.includes("demand") || unit === "kw") continue;
     total += value as number;
     count += 1;
