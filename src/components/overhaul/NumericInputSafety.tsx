@@ -17,6 +17,11 @@ export function parseEngineeringNumber(rawValue: string) {
   return Number.isFinite(value) ? value : null;
 }
 
+function setValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+}
+
 function normalize(input: HTMLInputElement) {
   if (!isNumericControl(input)) return;
   const raw = input.value;
@@ -27,13 +32,14 @@ function normalize(input: HTMLInputElement) {
   const value = parseEngineeringNumber(raw);
   if (value == null) {
     input.setAttribute("aria-invalid", "true");
+    setValue(input, "");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
     return;
   }
   input.removeAttribute("aria-invalid");
   const normalized = String(value);
   if (normalized === raw.trim().replace(/[_\s,]/g, "")) return;
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-  setter?.call(input, normalized);
+  setValue(input, normalized);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
