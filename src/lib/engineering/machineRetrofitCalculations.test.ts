@@ -46,7 +46,7 @@ describe("machine retrofit calculations", () => {
     const result = calculateMachineRetrofit({ loadKW: 5, efficiency: 0.8, runtimeHours: 100, targetEfficiency: 0.9 });
     expect(result).not.toBeNull();
     expect(result?.powerKW).toBeCloseTo(5 / 0.9, 6);
-    expect(result?.energySavingKWh).toBeCloseTo(62.5, 6);
+    expect(result?.energySavingKWh).toBeCloseTo((5 / 0.8 - 5 / 0.9) * 100, 6);
   });
 
   it("does not claim a worse efficiency target as an efficiency saving", () => {
