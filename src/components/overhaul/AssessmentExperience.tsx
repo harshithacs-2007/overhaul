@@ -18,6 +18,8 @@ import MachineRetrofitMatrix from "./MachineRetrofitMatrix";
 import EquipmentPerformanceTwinPanel from "./EquipmentPerformanceTwinPanel";
 import MachineEvidenceComparePanel from "./MachineEvidenceComparePanel";
 import ScanFusionPanel from "./ScanFusionPanel";
+import EngineeringAnchorGate from "./EngineeringAnchorGate";
+import ClimateDatasetBridge from "./ClimateDatasetBridge";
 import { useEffect, useMemo, useState } from "react";
 import { sanitizeTwinModel, type TwinModel } from "@/lib/engineering/twinModel";
 
@@ -25,9 +27,22 @@ type Scope = "building" | "facility" | "equipment";
 type Assessment = { assessmentSubject?: Scope; siteName?: string | null; assetClass?: string | null; industry?: string; assessmentGoal?: string; status?: string; assetAgeYears?: number | null; evidence?: Array<{ id: string; kind: string; name: string; type: string; size: number }> };
 type Extraction = { evidenceId?: string; observations?: Array<{ field: string; numericValue: number | null; value: string; unit: string | null; confidence: number; sourceText: string }>; warnings?: string[]; model?: string; sourceKind?: string; sourceName?: string; evidenceType?: string };
 type Values = Record<string, number | string | null>;
+type ClimateContext = {
+  location?: string;
+  latitude?: number;
+  longitude?: number;
+  year?: number;
+  temperature?: number;
+  humidity?: number;
+  min?: number;
+  max?: number;
+  rain?: number;
+  source?: string;
+  fetchedAt?: string;
+  hourlySeries?: Array<{ timestamp: string; outdoorTempC: number; solarIrradianceKWhM2: number }>;
+} | null;
 type RoomScan = { scope?: Scope; coveragePercent?: number; completed?: boolean; sectors?: Array<{ id: string; sector: number; result?: { detections?: Array<{ label: string; confidence: number; condition?: string; evidence?: string }> } }> } | null;
 type ScanFusion = Record<string, unknown> | null;
-type ClimateContext = { location?: string; temperature?: number; humidity?: number; min?: number; max?: number; rain?: number; source?: string; fetchedAt?: string } | null;
 
 function readJson<T>(key: string, fallback: T): T { try { return JSON.parse(sessionStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; } }
 function canonical(field: string) { return field.toLowerCase().trim().replace(/[()\-\/]+/g, "_").replace(/\s+/g, "_").replace(/_+/g, "_"); }
@@ -57,6 +72,7 @@ export default function AssessmentExperience() {
     window.addEventListener("overhaul:climate-change", sync);
     window.addEventListener("overhaul:twin-change", sync);
     window.addEventListener("overhaul:scan-fusion-change", sync);
+    window.addEventListener("overhaul:assessment-change", sync);
     window.addEventListener("storage", sync);
     return () => {
       window.removeEventListener("overhaul:supplemental-change", sync);
@@ -64,6 +80,7 @@ export default function AssessmentExperience() {
       window.removeEventListener("overhaul:climate-change", sync);
       window.removeEventListener("overhaul:twin-change", sync);
       window.removeEventListener("overhaul:scan-fusion-change", sync);
+      window.removeEventListener("overhaul:assessment-change", sync);
       window.removeEventListener("storage", sync);
     };
   }, []);
@@ -71,7 +88,7 @@ export default function AssessmentExperience() {
   const values = useMemo<Values>(() => {
     const next: Values = {};
     for (const extraction of extracts) for (const observation of extraction.observations || []) if (observation.numericValue != null && Number.isFinite(observation.numericValue)) next[canonical(observation.field)] = observation.numericValue;
-    for (const [key, value] of Object.entries(supplemental)) if (next[key] == null && typeof value === "number" && Number.isFinite(value)) next[canonical(key)] = value;
+    for (const [key, value] of Object.entries(supplemental)) if (next[canonical(key)] == null && typeof value === "number" && Number.isFinite(value)) next[canonical(key)] = value;
     return next;
   }, [extracts, supplemental]);
 
@@ -82,7 +99,8 @@ export default function AssessmentExperience() {
       try {
         const projectId = sessionStorage.getItem("overhaul:supabase-project-id") || undefined;
         const assetId = sessionStorage.getItem("overhaul:supabase-asset-id") || undefined;
-        const response = await fetch("/api/persistence/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, assetId, assessment, extractions: extracts, supplemental, roomScan, scanFusion, climate, twinModel: twin }) });
+        const persistedClimate = climate ? { ...climate, hourlySeries: undefined } : null;
+        const response = await fetch("/api/persistence/snapshot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, assetId, assessment, extractions: extracts, supplemental, roomScan, scanFusion, climate: persistedClimate, twinModel: twin }) });
         const payload = await response.json() as { projectId?: string; assetId?: string; error?: string };
         if (!response.ok) throw new Error(payload.error || "Persistence failed");
         if (!cancelled && payload.projectId) { sessionStorage.setItem("overhaul:supabase-project-id", payload.projectId); sessionStorage.setItem("overhaul:supabase-asset-id", payload.assetId || ""); }
@@ -100,12 +118,14 @@ export default function AssessmentExperience() {
 
   return <>
     <div className="mx-auto max-w-[1600px] px-4 pt-4 sm:px-7 lg:px-10">
-      <section className="relative overflow-hidden border border-gold/25 bg-[#080a09] shadow-[0_26px_110px_rgba(0,0,0,.28)]"><div className="absolute inset-y-0 right-0 w-[42%] bg-[radial-gradient(circle_at_center,rgba(228,184,96,.10),transparent_64%)]"/><div className="relative grid gap-5 p-5 sm:p-7 lg:grid-cols-[1.15fr_.85fr] lg:p-9"><div><p className="font-mono text-[8px] uppercase tracking-[.22em] text-gold">Retrofit command center</p><h1 className="mt-2 max-w-3xl font-display text-4xl leading-[.95] sm:text-5xl">Understand it.<br/>Model it.<br/><span className="text-teal">Then change it.</span></h1><p className="mt-4 max-w-2xl text-[10px] leading-5 text-steel">The twin is the engineering bridge: evidence becomes geometry, geometry becomes system context, and the current state is compared with an independent reference before retrofit pathways are simulated.</p></div><div className="grid content-end gap-2 sm:grid-cols-3 lg:grid-cols-1"><Signal label="Asset" value={assetClass}/><Signal label="Evidence" value={`${extracts.length + (roomScan?.sectors?.length ? 1 : 0)} source set${extracts.length + (roomScan?.sectors?.length ? 1 : 0) === 1 ? "" : "s"}`}/><Signal label="Twin" value={twin ? `${Math.round(twin.confidence * 100)}% confidence` : "building"}/></div></div></section>
+      <section className="relative overflow-hidden border border-gold/25 bg-[#080a09] shadow-[0_26px_110px_rgba(0,0,0,.28)]"><div className="absolute inset-y-0 right-0 w-[42%] bg-[radial-gradient(circle_at_center,rgba(228,184,96,.10),transparent_64%)]"/><div className="relative grid gap-5 p-5 sm:p-7 lg:grid-cols-[1.15fr_.85fr] lg:p-9"><div><p className="font-mono text-[8px] uppercase tracking-[.22em] text-gold">Retrofit command center</p><h1 className="mt-2 max-w-3xl font-display text-4xl leading-[.95] sm:text-5xl">Understand it.<br/>Model it.<br/><span className="text-teal">Then change it.</span></h1><p className="mt-4 max-w-2xl text-[10px] leading-5 text-steel">The twin is the engineering bridge: evidence becomes geometry, geometry becomes system context, and the current state is compared with an independent reference before retrofit pathways are simulated.</p></div><div className="grid content-end gap-2 sm:grid-cols-3 lg:grid-cols-1"><Signal label="Asset" value={assetClass}/><Signal label="Evidence" value={`${extracts.length + (roomScan?.sectors?.length ? 1 : 0)} source set${extracts.length + (roomScan?.sectors?.length ? 1 : 0) === 1 ? "" : "s"}`}/><Signal label="Twin" value={twin ? `${Math.round(twin.confidence * 100)}% confidence` : "blocked"}/></div></div></section>
       <p className="px-1 py-3 font-mono text-[7px] uppercase tracking-[.16em] text-steel">Evidence → reconstruction → expected/observed → retrofit what-if → decision → verify</p>
     </div>
     <div className="mx-auto max-w-[1600px] space-y-5 px-4 pb-12 sm:px-7 lg:px-10">
-      {twin ? <TwinBuildSequence scope={scope} evidenceCount={extracts.length + (roomScan?.sectors?.length ? 1 : 0)} signalCount={Object.keys(values).length} confidence={confidence} /> : <section className="border border-amber-200/25 bg-amber-200/[.025] p-6"><p className="font-mono text-[8px] uppercase text-amber-200">Twin pending</p><h2 className="mt-2 font-display text-3xl">Supply the asset evidence and anchors.</h2><p className="mt-2 max-w-3xl text-[10px] leading-5 text-steel">The reconstruction layer will not silently turn a photo into measurements. A floor plan can establish plan geometry; photos can locate visible equipment; your entered details anchor missing dimensions and operating state.</p></section>}
-      {twin ? <LiveTwinStudio scope={scope} title={title} values={values} twin={twin} /> : null}
+      <ClimateDatasetBridge />
+      <EngineeringAnchorGate scope={scope} values={values} assetAgeYears={assessment?.assetAgeYears} />
+      {twin ? <TwinBuildSequence scope={scope} evidenceCount={extracts.length + (roomScan?.sectors?.length ? 1 : 0)} signalCount={Object.keys(values).length} confidence={confidence} /> : <section className="border border-amber-200/25 bg-amber-200/[.025] p-6"><p className="font-mono text-[8px] uppercase text-amber-200">Twin pending</p><h2 className="mt-2 font-display text-3xl">Supply geometry evidence.</h2><p className="mt-2 max-w-3xl text-[10px] leading-5 text-steel">A scan or dimensioned drawing can establish structure. Photo-only reconstruction is kept relative. Metric geometry is never fabricated from appearance.</p></section>}
+      {twin ? <LiveTwinStudio scope={scope} title={title} values={values} twin={twin} climate={climate} /> : null}
       {twin ? <DigitalTwinConsole scope={scope} values={values} /> : null}
       <DatasetIntelligencePanel extracts={extracts}/><DatasetPhysicsBridgePanel extracts={extracts} values={values}/><RegionalConstraintPanel climate={climate} values={values}/><ModelEvidencePanel/>
       {roomScan?.sectors?.length ? <ScanFusionPanel /> : null}
