@@ -7,7 +7,7 @@ import type { TwinModel } from "@/lib/engineering/twinModel";
 type Scope = "building" | "facility" | "equipment";
 type Props = { scope: Scope; mode: "observed" | "retrofit"; model: TwinModel | null; widthM: number | null; depthM: number | null; heightM: number | null; capacityKW: number | null; loadKW: number | null; powerKW: number | null; currentLoadKW: number | null; proposedLoadKW: number | null; currentPowerKW: number | null; proposedPowerKW: number | null; currentUtilization: number | null; proposedUtilization: number | null; savingPercent: number | null; title: string };
 
-export default function Twin3DCanvas({ model, mode, title }: Props) {
+export default function Twin3DCanvas({ model, title }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export default function Twin3DCanvas({ model, mode, title }: Props) {
         box.textContent = message;
         host.appendChild(box);
       };
-      if (!model) { fail("3D twin blocked · no verified geometry evidence"); return; }
+      if (!model) { fail("3D twin blocked · no geometry evidence"); return; }
       let scene: Scene, camera: PerspectiveCamera, renderer: WebGLRenderer;
       try {
         scene = new THREE.Scene();
@@ -52,7 +52,9 @@ export default function Twin3DCanvas({ model, mode, title }: Props) {
         floor: new THREE.MeshStandardMaterial({ color: 0x103a36, metalness: 0.28, roughness: 0.7, transparent: true, opacity: 0.5 }),
         asset: new THREE.MeshStandardMaterial({ color: 0xe4b860, metalness: 0.55, roughness: 0.3 }),
         inferred: new THREE.MeshStandardMaterial({ color: 0x5d7773, metalness: 0.2, roughness: 0.8, transparent: true, opacity: 0.28 }),
+        retrofit: new THREE.MeshStandardMaterial({ color: 0x9b7cff, metalness: 0.48, roughness: 0.3, emissive: 0x2a174e, emissiveIntensity: 0.6 }),
         wire: new THREE.MeshBasicMaterial({ color: 0x2ce0ca, wireframe: true, transparent: true, opacity: 0.35 }),
+        retrofitWire: new THREE.MeshBasicMaterial({ color: 0x9b7cff, wireframe: true, transparent: true, opacity: 0.82 }),
         opening: new THREE.MeshBasicMaterial({ color: 0xe4b860 }),
       } as const;
       const box = (w: number, h: number, d: number, material: Material, x: number, y: number, z: number) => {
@@ -87,25 +89,18 @@ export default function Twin3DCanvas({ model, mode, title }: Props) {
         group.position.set(asset.x, 0, asset.y);
         group.rotation.y = THREE.MathUtils.degToRad(asset.rotationDeg);
         root.add(group);
-        const body = new THREE.Mesh(new THREE.BoxGeometry(asset.widthM, asset.heightM, asset.depthM), asset.source === "inferred" ? materials.inferred : materials.asset);
+        const isRetrofit = /RETROFIT TARGET|CONTROL \/ RUNTIME TARGET|retrofit-envelope-marker/i.test(`${asset.observedState || ""} ${asset.className}`);
+        const isEnvelopeMarker = /retrofit-envelope-marker/i.test(asset.className);
+        const bodyMaterial = isRetrofit ? materials.retrofit : asset.source === "inferred" ? materials.inferred : materials.asset;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(asset.widthM, asset.heightM, asset.depthM), bodyMaterial);
         body.position.y = asset.heightM / 2;
         body.castShadow = true;
         body.userData.label = asset.label;
         group.add(body);
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(asset.widthM * 1.03, asset.heightM * 1.03, asset.depthM * 1.03), materials.wire);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(asset.widthM * (isEnvelopeMarker ? 1.005 : 1.03), asset.heightM * (isEnvelopeMarker ? 1.005 : 1.03), asset.depthM * (isEnvelopeMarker ? 1.005 : 1.03)), isRetrofit ? materials.retrofitWire : materials.wire);
         frame.position.y = asset.heightM / 2;
         group.add(frame);
       }
-
-      const observedShell = new THREE.Group();
-      const retrofitShell = new THREE.Group();
-      if (mode === "retrofit") {
-        const shell = box(model.overall.widthM, Math.max(model.overall.heightM, 0.05), model.overall.depthM, materials.wire, 0, 0.02, 0);
-        retrofitShell.add(shell);
-        root.remove(shell);
-        scene.add(retrofitShell);
-      }
-      scene.add(observedShell);
 
       const maxDim = Math.max(model.overall.widthM, model.overall.depthM, model.overall.heightM);
       const target: Vector3 = new THREE.Vector3(model.overall.widthM / 2, model.overall.heightM * 0.42, model.overall.depthM / 2);
@@ -128,8 +123,7 @@ export default function Twin3DCanvas({ model, mode, title }: Props) {
       renderer.domElement.addEventListener("wheel", wheel, { passive: false });
       const resize = () => { const rect = host.getBoundingClientRect(); renderer.setSize(Math.max(rect.width, 1), Math.max(rect.height, 1), false); camera.aspect = Math.max(rect.width, 1) / Math.max(rect.height, 1); camera.updateProjectionMatrix(); };
       const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(host); resize();
-      const clock = new THREE.Clock();
-      const animate = () => { if (dead) return; const t = clock.getElapsedTime(); retrofitShell.visible = mode === "retrofit"; retrofitShell.rotation.y = Math.sin(t * 0.15) * 0.01; renderer.render(scene, camera); frame = requestAnimationFrame(animate); };
+      const animate = () => { if (dead) return; renderer.render(scene, camera); frame = requestAnimationFrame(animate); };
       animate();
       const badge = document.createElement("div");
       badge.className = "pointer-events-none absolute left-4 bottom-4 border border-steel/15 bg-black/70 px-3 py-2 font-mono text-[7px] uppercase tracking-[.1em] text-steel backdrop-blur";
@@ -139,7 +133,7 @@ export default function Twin3DCanvas({ model, mode, title }: Props) {
     };
     void mount();
     return () => { dead = true; dispose?.(); };
-  }, [model, mode, title]);
+  }, [model, title]);
 
   return <div ref={hostRef} className="relative h-full min-h-[600px] w-full touch-none" aria-label={`${title} actual generated 3D twin`} />;
 }
