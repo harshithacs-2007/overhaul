@@ -2,15 +2,36 @@
 
 import { useEffect } from "react";
 
-function normalize(input: HTMLInputElement) {
-  if (input.type !== "number") return;
-  const raw = input.value.trim();
-  if (!raw) { input.removeAttribute("aria-invalid"); return; }
-  const normalized = raw.replace(/,/g, "").replace(/\s/g, "");
+const DECIMAL_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+function isNumericControl(input: HTMLInputElement) {
+  return input.type === "number" || input.inputMode === "decimal" || input.inputMode === "numeric";
+}
+
+export function parseEngineeringNumber(rawValue: string) {
+  const raw = rawValue.trim();
+  if (!raw) return null;
+  const normalized = raw.replace(/[,_\s]/g, "");
+  if (!DECIMAL_RE.test(normalized)) return null;
   const value = Number(normalized);
-  const valid = Number.isFinite(value);
-  input.toggleAttribute("aria-invalid", !valid);
-  if (!valid || normalized === raw) return;
+  return Number.isFinite(value) ? value : null;
+}
+
+function normalize(input: HTMLInputElement) {
+  if (!isNumericControl(input)) return;
+  const raw = input.value;
+  if (!raw.trim()) {
+    input.removeAttribute("aria-invalid");
+    return;
+  }
+  const value = parseEngineeringNumber(raw);
+  if (value == null) {
+    input.setAttribute("aria-invalid", "true");
+    return;
+  }
+  input.removeAttribute("aria-invalid");
+  const normalized = String(value);
+  if (normalized === raw.trim().replace(/[_\s,]/g, "")) return;
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
   setter?.call(input, normalized);
   input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -18,11 +39,20 @@ function normalize(input: HTMLInputElement) {
 
 export default function NumericInputSafety() {
   useEffect(() => {
-    const onInput = (event: Event) => normalize(event.target as HTMLInputElement);
-    const onBlur = (event: FocusEvent) => normalize(event.target as HTMLInputElement);
+    const onInput = (event: Event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement) normalize(target);
+    };
+    const onBlur = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement) normalize(target);
+    };
     document.addEventListener("input", onInput, true);
     document.addEventListener("blur", onBlur, true);
-    return () => { document.removeEventListener("input", onInput, true); document.removeEventListener("blur", onBlur, true); };
+    return () => {
+      document.removeEventListener("input", onInput, true);
+      document.removeEventListener("blur", onBlur, true);
+    };
   }, []);
   return null;
 }
