@@ -1,0 +1,60 @@
+{
+  "version": "1.0",
+  "purpose": "Controlled regression and demo fixtures for OVERHAUL. These cases are ground truth references, not claims about real-world model accuracy.",
+  "cases": [
+    {
+      "id": "building-envelope-01",
+      "scope": "building",
+      "assetClass": "small office room",
+      "image": "../fixtures/room-hvac-ground-truth.svg",
+      "expectedDetections": ["window", "split air conditioner", "ceiling fan", "table", "door"],
+      "metrics": {
+        "floor_area_m2": 100,
+        "envelope_ua_w_per_k": 150,
+        "outdoor_temp_c": 35,
+        "indoor_temp_c": 25,
+        "capacity_kw": 12,
+        "cop": 3,
+        "annual_cooling_hours": 2000,
+        "electricity_rate_inr_per_kwh": 9,
+        "existing_r_value_m2k_w": 0.667,
+        "proposed_r_value_m2k_w": 1.25
+      },
+      "expectedPhysics": {
+        "baselineThermalLoadKW": 7.5,
+        "retrofitThermalLoadKW": 6.8,
+        "annualEnergySavingKWh": 466.6666666667,
+        "annualCostSavingINR": 4200
+      }
+    },
+    {
+      "id": "pump-vfd-01",
+      "scope": "equipment",
+      "assetClass": "pump",
+      "image": "../fixtures/pump-room-ground-truth.svg",
+      "expectedDetections": ["pump", "variable frequency drive"],
+      "metrics": {
+        "load_kw": 40,
+        "capacity_kw": 50,
+        "efficiency": 0.8,
+        "annual_hours": 3000,
+        "electricity_rate_inr_per_kwh": 10,
+        "proposed_efficiency": 1.0
+      },
+      "expectedPhysics": {
+        "baselinePowerKW": 50,
+        "retrofitPowerKW": 40,
+        "baselineAnnualEnergyKWh": 150000,
+        "retrofitAnnualEnergyKWh": 120000,
+        "annualEnergySavingKWh": 30000,
+        "annualCostSavingINR": 300000
+      }
+    }
+  ],
+  "scoring": {
+    "detection": "class precision, class recall, and bounding-box IoU where boxes are available",
+    "numeric": "MAE and MAPE against known fixture values; report undefined MAPE separately when ground truth is zero",
+    "physics": "absolute error against deterministic engine ground truth",
+    "workflow": "pass/fail for persistence, navigation, reload, invalid-input handling, and error recovery"
+  }
+}
