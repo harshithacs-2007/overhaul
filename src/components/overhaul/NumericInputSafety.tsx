@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-const DECIMAL_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+const DECIMAL_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 function isNumericControl(input: HTMLInputElement) {
   return input.type === "number" || input.inputMode === "decimal" || input.inputMode === "numeric";
