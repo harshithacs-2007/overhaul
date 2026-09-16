@@ -160,19 +160,35 @@ export async function POST(request: Request) {
     if (!(file instanceof File)) return NextResponse.json({ error: "Evidence file is required." }, { status: 400 });
     if (file.size <= 0 || file.size > MAX_BYTES) return NextResponse.json({ error: "Evidence file must be non-empty and 25 MB or smaller." }, { status: 413 });
     if (!isSupportedType(file.type, file.name)) return NextResponse.json({ error: "OVERHAUL currently analyzes images, PDFs, CSV/TSV datasets and JSON datasets." }, { status: 415 });
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: "Evidence perception is not configured on this deployment." }, { status: 503 });
 
     const dataset = isDatasetType(file.type, file.name);
     let datasetText: string | undefined;
     let deterministicStats: ReturnType<typeof deterministicDatasetObservations> | null = null;
-    if (dataset) { datasetText = await file.text(); deterministicStats = deterministicDatasetObservations(datasetText, file.name); }
+    if (dataset) {
+      datasetText = await file.text();
+      deterministicStats = deterministicDatasetObservations(datasetText, file.name);
+      if (!deterministicStats.observations.length) return NextResponse.json({ error: "Dataset could not be parsed into usable rows and columns." }, { status: 422 });
+      const deterministic: EvidenceExtractionResponse = {
+        evidenceId,
+        filename: file.name,
+        mimeType: file.type || (file.name.toLowerCase().endsWith(".csv") ? "text/csv" : "application/octet-stream"),
+        model: "OVERHAUL deterministic dataset analyzer",
+        evidenceType: "other",
+        rawText: datasetText.slice(0, MAX_DATASET_PROMPT_CHARS),
+        observations: deterministicStats.observations,
+        visibleAssets: [],
+        warnings: deterministicStats.warnings,
+        nextEvidence: ["Longer operating history or a field measurement if a design or retrofit baseline is required."],
+      };
+      return NextResponse.json({ result: deterministic });
+    }
 
-    const content = dataset
-      ? [{ type: "input_text", text: buildPrompt(file.name, file.type, datasetText, Boolean(datasetText && datasetText.length > MAX_DATASET_PROMPT_CHARS)) }]
-      : file.type === "application/pdf"
-        ? [{ type: "input_file", filename: file.name, file_data: await toDataUrl(file), detail: "high" }, { type: "input_text", text: buildPrompt(file.name, file.type) }]
-        : [{ type: "input_text", text: buildPrompt(file.name, file.type) }, { type: "input_image", image_url: await toDataUrl(file), detail: "high" }];
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: "Evidence perception is not configured on this deployment." }, { status: 503 });
+
+    const content = file.type === "application/pdf"
+      ? [{ type: "input_file", filename: file.name, file_data: await toDataUrl(file), detail: "high" }, { type: "input_text", text: buildPrompt(file.name, file.type) }]
+      : [{ type: "input_text", text: buildPrompt(file.name, file.type) }, { type: "input_image", image_url: await toDataUrl(file), detail: "high" }];
 
     const openaiResponse = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: MODEL, input: [{ role: "user", content }], text: { format: { type: "json_schema", name: "overhaul_evidence_extraction", strict: true, schema: { type: "object", additionalProperties: false, required: ["evidenceType", "rawText", "observations", "visibleAssets", "warnings", "nextEvidence"], properties: { evidenceType: { type: "string", enum: ["equipment_nameplate", "equipment", "building_exterior", "building_interior", "mechanical_room", "floorplan", "energy_bill", "technical_document", "other"] }, rawText: { type: "string" }, observations: { type: "array", items: { type: "object", additionalProperties: false, required: ["field", "value", "numericValue", "unit", "confidence", "sourceText", "notes"], properties: { field: { type: "string" }, value: { type: "string" }, numericValue: { type: ["number", "null"] }, unit: { type: ["string", "null"] }, confidence: { type: "number", minimum: 0, maximum: 1 }, sourceText: { type: "string" }, notes: { type: "string" } } } }, visibleAssets: { type: "array", items: { type: "string" } }, warnings: { type: "array", items: { type: "string" } }, nextEvidence: { type: "array", items: { type: "string" } } } } } }, max_output_tokens: 7000, store: false }) });
 
@@ -181,8 +197,7 @@ export async function POST(request: Request) {
     if (!payload.output_text) return NextResponse.json({ error: "Evidence analysis returned no structured result." }, { status: 502 });
     const validated = evidenceExtractionSchema.parse(JSON.parse(payload.output_text));
     const sanitized = sanitizeEvidenceExtraction(validated);
-    if (deterministicStats) { sanitized.observations = [...deterministicStats.observations, ...sanitized.observations].slice(0, MAX_DATASET_OBSERVATIONS); sanitized.warnings = [...deterministicStats.warnings, ...sanitized.warnings]; }
-    const result: EvidenceExtractionResponse = { evidenceId, filename: file.name, mimeType: file.type || (file.name.toLowerCase().endsWith(".csv") ? "text/csv" : "application/octet-stream"), model: MODEL, ...sanitized };
+    const result: EvidenceExtractionResponse = { evidenceId, filename: file.name, mimeType: file.type || "application/octet-stream", model: MODEL, ...sanitized };
     return NextResponse.json({ result });
   } catch (error) {
     console.error("Evidence extraction route error", error);
