@@ -4,28 +4,33 @@
 
 This report separates **software correctness** from **AI perception accuracy**. A passing deterministic test suite does not prove that a vision model correctly identifies arbitrary real-world equipment.
 
-## Current automated evidence
+## Verified automated evidence
 
-The GitHub Actions production gate runs, in order:
+The latest GitHub Actions run on commit `d2d6210e7bbe1f94fc61c503de0d8d96f96c0943` completed successfully:
 
-1. `npm install --no-audit --no-fund`
-2. `npm run lint`
-3. `npx tsc --noEmit`
-4. `npm test`
-5. `npm run build`
-6. `npm run smoke`
+- install: PASS
+- lint: PASS (57 warnings, 0 errors)
+- TypeScript: PASS
+- Vitest: **59/59 tests PASS across 12 test files**
+- production build: PASS
+- production HTTP smoke: PASS
 
-The engineering regression suite covers building, equipment, retrofit-counterfactual, input-validation, provenance, dataset, interoperability, and controlled-fixture integrity. The pre-fixture-integrity baseline was **54/54 tests**; the added fixture-integrity suite contains five additional checks, so the current suite is expected to cover **59 tests** when the latest CI run completes.
-
-The smoke test starts the compiled Next.js server and checks these routes:
+The smoke test started the compiled Next.js server and successfully probed:
 
 - `/`
 - `/assessment`
 - `/validation`
 - `/report`
 - `/results`
+- deterministic `/api/model/generate` twin path
+- invalid-input guard for `/api/evidence/extract`
+- deterministic CSV evidence analysis without an LLM key
 
-It also verifies the no-AI deterministic equipment twin path and the evidence API's invalid-input guard.
+## What the 59 tests prove
+
+They provide automated regression coverage for building calculations, equipment calculations, retrofit counterfactuals, numeric-input handling, evidence normalization, twin comparison/provenance, interoperability, dataset/physics helpers, and controlled-fixture integrity.
+
+They do **not** prove real-world computer-vision accuracy, reconstruction accuracy on arbitrary photographs, or field energy-savings accuracy.
 
 ## Controlled fixtures
 
@@ -79,9 +84,10 @@ Compare OVERHAUL outputs with independently calculated fixture ground truth from
 ## Known limitations
 
 - The synthetic SVG fixtures intentionally simplify real-world appearance. They are useful for regression and workflow testing, not for claiming real-world camera accuracy.
-- Live multimodal extraction depends on the configured provider and available API quota. A provider failure must be reported as an unavailable perception result, never silently converted into fabricated engineering observations.
+- Live multimodal extraction depends on the configured provider and available API quota. A provider failure is surfaced as an unavailable perception result rather than silently converted into fabricated engineering observations.
 - Metric 3D reconstruction from photos alone remains relative-only unless a trustworthy scale anchor is supplied.
 - A dataset correlation is descriptive association; it is not evidence that a retrofit caused the observed change.
+- The current lint run has 57 warnings. They are non-blocking, but remain technical-debt candidates for the next cleanup pass.
 
 ## Demo dataset values
 
@@ -97,9 +103,9 @@ The correct test procedure is to upload the fixture, capture the extracted obser
 
 ## Reporting rule
 
-For a competition deck, present two separate numbers:
+For a competition deck, present two separate categories:
 
-1. **Software validation:** deterministic regression result from the fixed test suite.
+1. **Software validation:** the verified automated regression result, currently **59/59 tests passed**.
 2. **Vision validation:** measured precision/recall/numeric/geometry metrics on the labelled fixture set, with sample count and failure cases.
 
 Do not combine these into one headline "AI accuracy" percentage.
