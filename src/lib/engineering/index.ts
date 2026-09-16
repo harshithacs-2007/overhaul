@@ -1,6 +1,7 @@
 export * from "./digitalShadow";
 export * from "./physicsSimulation";
 export * from "./physicsAdapters";
+export * from "./hourlyBuildingSimulation";
 export * from "./datasetPhysics";
 export * from "./machineRetrofitEngine";
 export * from "./climateConstraints";
