@@ -15,9 +15,9 @@ The GitHub Actions production gate runs, in order:
 5. `npm run build`
 6. `npm run smoke`
 
-The engineering regression suite currently covers the building, equipment, retrofit-counterfactual, input-validation, provenance, dataset, and interoperability paths. The latest completed run before the smoke-test gate passed **54/54 tests** and the production build passed.
+The engineering regression suite covers building, equipment, retrofit-counterfactual, input-validation, provenance, dataset, interoperability, and controlled-fixture integrity. The pre-fixture-integrity baseline was **54/54 tests**; the added fixture-integrity suite contains five additional checks, so the current suite is expected to cover **59 tests** when the latest CI run completes.
 
-The smoke test additionally starts the compiled Next.js server and checks these routes:
+The smoke test starts the compiled Next.js server and checks these routes:
 
 - `/`
 - `/assessment`
