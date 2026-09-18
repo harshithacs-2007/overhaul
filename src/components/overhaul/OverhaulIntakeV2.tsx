@@ -97,7 +97,7 @@ async function extractEvidence(items: EvidenceItem[], scope: Scope, industry: In
 }
 
 async function buildTwin(items: EvidenceItem[], context: TwinContext) {
-  const images = items.filter((item) => item.file.type.startsWith("image/")).slice(0, 6);
+  const images = items.filter((item) => item.file.type.startsWith("image/")).slice(0, 12);
   const form = new FormData();
   form.append("scope", context.scope);
   form.append("className", context.className);
