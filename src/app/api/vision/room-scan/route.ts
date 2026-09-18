@@ -64,7 +64,7 @@ function iou(a: Detection["box"], b: Detection["box"]) {
 }
 function validBox(box: Detection["box"]) { return Number.isFinite(box.x) && Number.isFinite(box.y) && Number.isFinite(box.width) && Number.isFinite(box.height) && box.width > 0 && box.height > 0 && box.x >= 0 && box.y >= 0 && box.x + box.width <= 1 && box.y + box.height <= 1; }
 
-function prompt(scope: string, sector: number, sectorCount: number, mode: "inventory" | "engineering") {
+function prompt(scope: string, sector: number, sectorCount: number, mode: "inventory" | "engineering", targetHint?: string) {
   const vocabulary = OVERHAUL_VISION_VOCABULARY.join(", ").slice(0, 15000);
   const focus = mode === "inventory"
     ? `Perform a broad open-vocabulary inventory. Detect every clearly visible object you can identify, including ordinary room objects, furniture, appliances and engineering assets. Prefer a specific label when visible evidence supports it. Candidate vocabulary: ${vocabulary}`
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
     const file = form.get("file");
     const scope = String(form.get("scope") || "room").slice(0, 40);
     const rawSector = Number(form.get("sector") || 0);
-    const rawSectorCount = Number(form.get("sectorCount") || 12);
+    const rawSectorCount = Number(form.get("sectorCount") || 12);\n    const targetHint = cleanText(form.get("targetHint"), 400);
     const sector = Number.isFinite(rawSector) ? Math.max(0, Math.min(99, rawSector)) : 0;
     const sectorCount = Number.isFinite(rawSectorCount) ? Math.max(1, Math.min(100, rawSectorCount)) : 12;
     if (!(file instanceof File)) return NextResponse.json({ error: "Scan frame is required." }, { status: 400 });
@@ -141,8 +141,8 @@ export async function POST(request: Request) {
     if (!apiKey) return NextResponse.json({ error: "Nebius computer vision is not configured on this deployment." }, { status: 503 });
     const imageUrl = await toDataUrl(file);
     const [inventoryResult, engineeringResult] = await Promise.allSettled([
-      callVision(apiKey, imageUrl, prompt(scope, sector, sectorCount, "inventory")),
-      callVision(apiKey, imageUrl, prompt(scope, sector, sectorCount, "engineering")),
+      callVision(apiKey, imageUrl, prompt(scope, sector, sectorCount, "inventory", targetHint)),
+      callVision(apiKey, imageUrl, prompt(scope, sector, sectorCount, "engineering", targetHint)),
     ]);
     const inventory = inventoryResult.status === "fulfilled" ? inventoryResult.value : { summary: "", detections: [], engineering_clues: [], coverage_notes: [], visible_details: [] };
     const engineering = engineeringResult.status === "fulfilled" ? engineeringResult.value : { summary: "", detections: [], engineering_clues: [], coverage_notes: [], visible_details: [] };
