@@ -131,7 +131,8 @@ export async function POST(request: Request) {
     const file = form.get("file");
     const scope = String(form.get("scope") || "room").slice(0, 40);
     const rawSector = Number(form.get("sector") || 0);
-    const rawSectorCount = Number(form.get("sectorCount") || 12);\n    const targetHint = cleanText(form.get("targetHint"), 400);
+    const rawSectorCount = Number(form.get("sectorCount") || 12);
+    const targetHint = cleanText(form.get("targetHint"), 400);
     const sector = Number.isFinite(rawSector) ? Math.max(0, Math.min(99, rawSector)) : 0;
     const sectorCount = Number.isFinite(rawSectorCount) ? Math.max(1, Math.min(100, rawSectorCount)) : 12;
     if (!(file instanceof File)) return NextResponse.json({ error: "Scan frame is required." }, { status: 400 });
