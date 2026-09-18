@@ -69,11 +69,13 @@ function prompt(scope: string, sector: number, sectorCount: number, mode: "inven
   const focus = mode === "inventory"
     ? `Perform a broad open-vocabulary inventory. Detect every clearly visible object you can identify, including ordinary room objects, furniture, appliances and engineering assets. Prefer a specific label when visible evidence supports it. Candidate vocabulary: ${vocabulary}`
     : "Perform a specialist engineering/retrofit inventory. Prioritize HVAC, electrical, mechanical, plumbing, envelope, safety and industrial equipment, plus visible degradation or access conditions. Also inspect labels/nameplates and extract only readable text.";
+  const target = targetHint ? `TARGETED EVIDENCE REQUEST: ${targetHint}. Prioritize this target in this frame, but still return other clearly visible objects. If it is not actually visible, do not invent a substitute; state that limitation in coverage_notes.` : "No targeted evidence request is active.";
   return `You are OVERHAUL's visual perception layer for retrofit engineering.
 
 Target scope: ${scope}. Camera sector ${sector + 1} of ${sectorCount}.
 Pass: ${mode}.
 ${focus}
+${target}
 
 ${DATASET_BASIS}
 
